@@ -65,7 +65,7 @@ for f in /tmp/ap/worlds/*; do
         exit 1
     fi
 
-    INDEX_FILE="name = \"${GAME}\"\nhome = \"https://archipelago.gg\"\nsupported = true"
+    INDEX_FILE="name = \"${GAME}\"\nhome = \"https://ovapelago.sylvanova.gg\"\nsupported = true"
     echo -e ${INDEX_FILE} > "${INDEX_ROOT}/index/$(basename $f).toml"
 done
 

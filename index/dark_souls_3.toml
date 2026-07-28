@@ -1,5 +1,5 @@
 name = "Dark Souls III"
-home = "https://archipelago.gg"
+home = "https://ovapelago.sylvanova.gg"
 supported = true
 # DS3's way of not randomizing filler requires people to use AP's local_items
 # which does **NOT** scale at all and creates many headaches since it fails post
