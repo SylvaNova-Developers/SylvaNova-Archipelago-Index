@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sylvanova-apworld-bot"
+version = "0.1.0"
+description = "Discord scaffold for SylvaNova apworld index requests"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "discord.py>=2.4,<3",
+  "PyGithub>=2.3,<3",
+  "python-dotenv>=1.0,<2",
+]
+
+[project.scripts]
+sylvanova-apworld-bot = "sylvanova_apworld_bot.bot:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

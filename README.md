@@ -59,3 +59,51 @@ This makes it easier to update and can be used to automatically fetch newer vers
 - Note: Other Fuzzer tests may also be done on the world at the time of merging into the index, at the benefit of helping devs discover other types of bugs such as:
   - Universal Tracker compatibility issues
   - Determinism (i.e. that using the same random seed number and same input yaml(s) should produce the same outcome every single time)
+
+# SylvaNova automation
+
+This fork tracks [`ionium-ap/Archipelago-index`](https://github.com/ionium-ap/Archipelago-index) `main` automatically and accepts PRs through GitHub Actions (no GitLab / Taskcluster required).
+
+Discord request bot scaffold (portable; split to its own repo when ready): see [`discord-bot/`](discord-bot/).
+
+## Upstream sync
+
+Workflow: `.github/workflows/sync-upstream.yml`
+
+- Runs every 15 minutes (and on `workflow_dispatch`)
+- Fast-forwards or merges `ionium-ap/Archipelago-index:main` into this repo's `main`
+- On merge conflicts, opens (or comments on) a GitHub issue
+
+Secret: `BOT_PAT` (contents:write; recommended so pushes work with branch protection)
+
+## PR acceptance (automatic CI)
+
+Workflow: `.github/workflows/pr-ci.yml`
+
+On every non-draft PR to `main`:
+
+1. **validate** — parse changed `index/*.toml`, reject new `local` sources, check version URLs, run `apwm changes`/`download`
+2. **fuzz** — for each changed apworld, run the upstream gate suite (baseline, restrictive-starts / empty world, GER, item/location counts, lambda capture, placement refs, indirect conditions, static output placement, determinism, collect accessibility, UT when available). Failure rate must stay **below 1%** (OptionErrors ignored), matching the criteria above
+3. **auto-merge** — squash-merges when validate + fuzz succeed
+
+GitHub-hosted runners use a reduced run floor (`FUZZ_RUNS_FULL=1000`, `FUZZ_RUNS_CHECK=500`) versus upstream Taskcluster (`5000` / `500`). The **rate gate is unchanged**.
+
+Recommended repo settings:
+
+- Enable **Allow auto-merge**
+- Branch protection on `main` requiring checks `validate` and `fuzz-ok`
+
+## Post-merge publish + lobby refresh
+
+Workflow: `.github/workflows/post-merge.yml`
+
+After `main` advances (skips commits marked `[skip ci]`):
+
+1. Builds `apwm` from `chouticly/SylvaNova-archipelago-lobby`
+2. Runs `apwm update` and commits `index.lock` with `[skip ci]`
+3. If both secrets are set, calls the lobby admin refresh endpoint:
+   - `LOBBY_REFRESH_URL` — e.g. `https://your-host/worlds/refresh`
+   - `LOBBY_ADMIN_TOKEN` — value for `X-Api-Key`
+4. If those secrets are unset, refresh is skipped (safe while no public lobby is deployed)
+
+Point your lobby's `APWORLDS_INDEX_REPO_URL` at this repository so `/worlds/refresh` pulls the SylvaNova index.

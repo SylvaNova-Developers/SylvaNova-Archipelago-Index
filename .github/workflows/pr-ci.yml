@@ -1,0 +1,209 @@
+name: PR CI
+
+# Automatic acceptance gate for every PR (replaces maintainer `/ci fuzz`).
+# Jobs:
+#   discover   — which index/*.toml files changed
+#   validate   — TOML + URL checks + apwm changes/download for touched worlds
+#   fuzz       — fuzzer gate suite (<1% failure, OptionError ignored) per world
+#   auto-merge — squash-merge when validate+fuzz are green
+#
+# Fuzz run floors on GitHub-hosted runners (full upstream uses 5000/500 on
+# self-hosted Taskcluster). The failure-rate gate remains <1%.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  discover:
+    name: discover
+    runs-on: ubuntu-latest
+    outputs:
+      worlds: ${{ steps.list.outputs.worlds }}
+      has_worlds: ${{ steps.list.outputs.has_worlds }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: list
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}"
+          worlds=$(python3 scripts/ci/changed_worlds.py \
+            --base "origin/${{ github.base_ref }}" \
+            --head HEAD \
+            --json-array)
+          echo "worlds=$worlds" >> "$GITHUB_OUTPUT"
+          if [ "$worlds" = "[]" ]; then
+            echo "has_worlds=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_worlds=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Changed worlds: $worlds"
+
+  validate:
+    name: validate
+    needs: discover
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate changed world TOMLs
+        if: needs.discover.outputs.has_worlds == 'true'
+        env:
+          WORLDS_JSON: ${{ needs.discover.outputs.worlds }}
+        run: |
+          set -euo pipefail
+          mapfile -t worlds < <(python3 -c 'import json,os; print("\n".join(json.loads(os.environ["WORLDS_JSON"])))')
+          python3 scripts/ci/validate_worlds.py "${worlds[@]}"
+
+      - name: No world TOML changes
+        if: needs.discover.outputs.has_worlds != 'true'
+        run: echo "No index/*.toml changes; validate OK"
+
+      - name: Checkout lobby (for apwm)
+        if: needs.discover.outputs.has_worlds == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: chouticly/SylvaNova-archipelago-lobby
+          path: _lobby
+
+      - name: Install Rust toolchain
+        if: needs.discover.outputs.has_worlds == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        if: needs.discover.outputs.has_worlds == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: _lobby/apwm -> target
+
+      - name: apwm changes + download
+        if: needs.discover.outputs.has_worlds == 'true'
+        run: |
+          set -euo pipefail
+          cargo build --manifest-path _lobby/apwm/Cargo.toml --features cli --release
+          APWM="_lobby/apwm/target/release/apwm"
+          mkdir -p /tmp/apwm-out
+          # `apwm changes -f` expects a git remote URL to clone the base index from.
+          "$APWM" changes -i . \
+            -f "https://github.com/${{ github.repository }}.git" \
+            -r "${{ github.base_ref }}" \
+            -o /tmp/apwm-out
+          if [ -f /tmp/apwm-out/changes.json ]; then
+            cat /tmp/apwm-out/changes.json
+          fi
+
+  fuzz:
+    name: fuzz
+    needs: [discover, validate]
+    if: needs.discover.outputs.has_worlds == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        world: ${{ fromJson(needs.discover.outputs.worlds) }}
+        variant:
+          - baseline
+          - no-restrictive-starts
+          - check-gerpocalypse
+          - check-item-location-count
+          - check-lambda-capture
+          - check-placement-item-location-refs
+          - check-indirect-conditions
+          - check-static-output-placement
+          - check-determinism
+          - check-collect-accessibility
+          - check-ut
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zip unzip git build-essential
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run fuzz variant
+        env:
+          APWORLD_NAME: ${{ matrix.world }}
+          VARIANT: ${{ matrix.variant }}
+          INDEX_ROOT: ${{ github.workspace }}
+          FUZZ_RUNS_FULL: "1000"
+          FUZZ_RUNS_CHECK: "500"
+        run: |
+          chmod +x scripts/ci/*.sh
+          scripts/ci/run_fuzz_variant.sh
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.world }}-${{ matrix.variant }}
+          path: fuzz-report-${{ matrix.world }}-${{ matrix.variant }}.json
+          if-no-files-found: ignore
+
+  fuzz-ok:
+    name: fuzz-ok
+    needs: [discover, fuzz]
+    if: always() && needs.discover.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require fuzz success when worlds changed
+        run: |
+          set -euo pipefail
+          has="${{ needs.discover.outputs.has_worlds }}"
+          result="${{ needs.fuzz.result }}"
+          if [ "$has" = "true" ]; then
+            if [ "$result" != "success" ]; then
+              echo "fuzz matrix failed (result=$result)" >&2
+              exit 1
+            fi
+            echo "fuzz matrix passed"
+          else
+            echo "No apworld toml changes; fuzz gate skipped"
+          fi
+
+  auto-merge:
+    name: auto-merge
+    needs: [validate, fuzz-ok]
+    if: |
+      always()
+      && needs.validate.result == 'success'
+      && needs.fuzz-ok.result == 'success'
+      && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge and merge
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Prefer GitHub auto-merge (respects branch protection). If the repo
+          # has no required checks configured yet, fall back to a direct squash
+          # merge now that validate+fuzz already succeeded in this workflow.
+          if gh pr merge "$PR" --repo "${{ github.repository }}" --auto --squash; then
+            echo "Auto-merge enabled (or completed)"
+          else
+            echo "gh pr merge --auto failed; attempting direct squash merge"
+            gh pr merge "$PR" --repo "${{ github.repository }}" --squash --delete-branch
+          fi
