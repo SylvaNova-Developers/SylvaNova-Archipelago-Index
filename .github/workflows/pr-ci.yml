@@ -5,7 +5,7 @@ name: PR CI
 #   discover   — which index/*.toml files changed
 #   validate   — TOML + URL checks + apwm changes/download for touched worlds
 #   fuzz       — fuzzer gate suite (<1% failure, OptionError ignored) per world
-#   auto-merge — squash-merge when validate+fuzz are green
+#   auto-merge — squash-merge when validate+fuzz are green (index/*.toml changes only)
 #
 # Fuzz run floors on GitHub-hosted runners (full upstream uses 5000/500 on
 # self-hosted Taskcluster). The failure-rate gate remains <1%.
@@ -184,9 +184,11 @@ jobs:
 
   auto-merge:
     name: auto-merge
-    needs: [validate, fuzz-ok]
+    needs: [discover, validate, fuzz-ok]
     if: |
       always()
+      && needs.discover.result == 'success'
+      && needs.discover.outputs.has_worlds == 'true'
       && needs.validate.result == 'success'
       && needs.fuzz-ok.result == 'success'
       && github.event.pull_request.draft == false
