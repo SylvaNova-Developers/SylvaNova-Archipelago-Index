@@ -1,75 +1,85 @@
-name: Post-merge GitLab publish trigger
+name: Post-merge publish
 
-# Fires the GitLab `MODE=publish` pipeline after each main-branch push has
-# been mirrored to GitLab. That pipeline runs `apwm update` against the
-# freshly-merged main, commits the refreshed index.lock back here (with
-# `[skip ci]`), then fires the lobby's /worlds/refresh endpoint.
+# After main advances (human merge, auto-merge, or upstream sync):
+#   1. Rebuild index.lock with apwm update
+#   2. Commit the lockfile with [skip ci] (avoids a publish loop)
+#   3. Optionally hit the SylvaNova lobby /worlds/refresh when secrets exist
 #
-# Chained off `Mirror to GitLab` via `workflow_run` so we never trigger the
-# publish job before its required commit has landed on the GitLab mirror
-# (without the chain, the publish job sometimes fetched stale main).
-#
-# Skips when the head commit was authored by the bot itself (by `[skip ci]`
-# marker), so the lockfile-update commit doesn't trigger a follow-on
-# publish run.
-#
-# Required secret in this repo:
-#   GITLAB_TRIGGER_TOKEN  — same token used by trigger.yml; pipeline trigger
-#                           token from the mirror project's CI/CD settings.
+# Secrets:
+#   BOT_PAT              — push lockfile commits (falls back to GITHUB_TOKEN)
+#   LOBBY_REFRESH_URL    — optional, e.g. https://lobby.example/worlds/refresh
+#   LOBBY_ADMIN_TOKEN    — optional, X-Api-Key value for that endpoint
 
 on:
-  workflow_run:
-    workflows: ["Mirror to GitLab"]
-    types: [completed]
+  push:
     branches: [main]
-  # Manual fallback for re-firing the publish flow (e.g. if the chain fired
-  # before a downstream service was ready and you want to retry).
   workflow_dispatch:
 
-# Default GITHUB_TOKEN read-only is plenty -- this workflow only POSTs to
-# GitLab and doesn't touch the GitHub API.
-permissions:
-  contents: read
-
-# Serialize publish triggers so two rapid main-pushes don't kick off two
-# overlapping publish runs racing on the same index.lock. cancel-in-progress
-# is false because the in-flight one is still doing useful work (lockfile
-# regen + lobby refresh) that we don't want to interrupt mid-stream.
 concurrency:
   group: post-merge-publish
   cancel-in-progress: false
 
-env:
-  GITLAB_PIPELINE_TRIGGER_URL: https://git.mooinglemur.com/api/v4/projects/ionium-ap%2Farchipelago-index/trigger/pipeline
+permissions:
+  contents: write
 
 jobs:
-  trigger-publish:
+  publish:
     runs-on: ubuntu-latest
-    # Two gates, OR'd over the two trigger types:
-    #   - workflow_dispatch: manual retry; no upstream check, no [skip ci] check.
-    #   - workflow_run: only proceed if the mirror succeeded AND the commit
-    #     it mirrored isn't our own bot commit. Otherwise we'd loop:
-    #       merge → mirror → publish → bot commit → mirror → ...
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && !contains(github.event.workflow_run.head_commit.message, '[skip ci]')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]') }}
     steps:
-      - name: Trigger GitLab pipeline (MODE=publish)
-        env:
-          TOKEN: ${{ secrets.GITLAB_TRIGGER_TOKEN }}
-          # workflow_run sets github.sha to the upstream's HEAD already,
-          # but use head_sha explicitly so behavior is identical when this
-          # is fired manually via workflow_dispatch (where github.sha is
-          # whatever HEAD of main happens to be at dispatch time).
-          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Checkout index
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Checkout lobby (for apwm)
+        uses: actions/checkout@v4
+        with:
+          repository: chouticly/SylvaNova-archipelago-lobby
+          path: _lobby
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: _lobby/apwm -> target
+
+      - name: Build apwm
+        run: cargo build --manifest-path _lobby/apwm/Cargo.toml --features cli --release
+
+      - name: Run apwm update
         run: |
-          set -e
-          response=$(curl -fsS -X POST \
-            -F "token=$TOKEN" \
-            -F "ref=main" \
-            -F "variables[MODE]=publish" \
-            -F "variables[GITHUB_SHA]=$SHA" \
-            "$GITLAB_PIPELINE_TRIGGER_URL")
-          echo "$response" | jq .
-          web_url=$(echo "$response" | jq -r '.web_url // empty')
-          if [ -n "$web_url" ]; then
-            echo "Pipeline: $web_url"
+          set -euo pipefail
+          APWM="$GITHUB_WORKSPACE/_lobby/apwm/target/release/apwm"
+          "$APWM" update -i "$GITHUB_WORKSPACE"
+
+      - name: Commit index.lock if changed
+        run: |
+          set -euo pipefail
+          git config user.name "sylvanova-index-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- index.lock; then
+            echo "index.lock unchanged"
+            exit 0
           fi
+          git add index.lock
+          git commit -m "Update index lock [skip ci]"
+          git push origin HEAD:main
+
+      - name: Refresh lobby (optional)
+        env:
+          LOBBY_REFRESH_URL: ${{ secrets.LOBBY_REFRESH_URL }}
+          LOBBY_ADMIN_TOKEN: ${{ secrets.LOBBY_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LOBBY_REFRESH_URL:-}" ] || [ -z "${LOBBY_ADMIN_TOKEN:-}" ]; then
+            echo "Lobby refresh skipped (LOBBY_REFRESH_URL / LOBBY_ADMIN_TOKEN not set)"
+            exit 0
+          fi
+          echo "Calling $LOBBY_REFRESH_URL"
+          curl -fsS -H "X-Api-Key: ${LOBBY_ADMIN_TOKEN}" "$LOBBY_REFRESH_URL"
+          echo
+          echo "Lobby refresh OK"

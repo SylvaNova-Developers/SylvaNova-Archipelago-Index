@@ -1,0 +1,90 @@
+name: Sync upstream
+
+# Keep this fork 1:1 with ionium-ap/Archipelago-index:main.
+# Polls on a short schedule (GitHub cron minimum is ~5–15m in practice) and
+# also supports manual runs.
+#
+# Required secret:
+#   BOT_PAT — PAT (or fine-grained token) with contents:write on this repo so
+#             the job can push to main even when GITHUB_TOKEN is restricted.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "sylvanova-index-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream main
+        run: |
+          git remote add upstream https://github.com/ionium-ap/Archipelago-index.git
+          git fetch upstream main
+
+      - name: Merge upstream into main
+        id: merge
+        run: |
+          set -euo pipefail
+          OUR=$(git rev-parse HEAD)
+          THEIR=$(git rev-parse upstream/main)
+          if [ "$OUR" = "$THEIR" ]; then
+            echo "already_up_to_date=true" >> "$GITHUB_OUTPUT"
+            echo "Already up to date with upstream/main ($OUR)"
+            exit 0
+          fi
+          echo "already_up_to_date=false" >> "$GITHUB_OUTPUT"
+          echo "Local=$OUR upstream=$THEIR"
+          if git merge-base --is-ancestor HEAD upstream/main; then
+            echo "Fast-forwarding to upstream/main"
+            git merge --ff-only upstream/main
+          else
+            echo "Merging upstream/main with [upstream-sync] commit"
+            if ! git merge --no-edit -m "Merge ionium-ap/Archipelago-index:main [upstream-sync]" upstream/main; then
+              echo "::error::Merge conflict while syncing from ionium-ap/Archipelago-index:main"
+              git merge --abort || true
+              exit 1
+            fi
+          fi
+
+      - name: Push
+        if: steps.merge.outputs.already_up_to_date != 'true'
+        run: git push origin HEAD:main
+
+      - name: Open issue on sync failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          title="Upstream sync failed ($(date -u +%Y-%m-%d))"
+          body="Automated sync from \`ionium-ap/Archipelago-index:main\` failed on run ${{ github.run_id }}.
+          
+          See: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          Likely cause: merge conflict between local commits and upstream. Resolve manually, then re-run **Sync upstream**."
+          # Avoid opening duplicate open issues with the same title prefix.
+          existing=$(gh issue list --state open --search "Upstream sync failed" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
