@@ -68,7 +68,16 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t worlds < <(python3 -c 'import json,os; print("\n".join(json.loads(os.environ["WORLDS_JSON"])))')
-          python3 scripts/ci/validate_worlds.py "${worlds[@]}"
+          AP_VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("index.toml","rb"))["archipelago_version"])')"
+          rm -rf /tmp/archipelago-validate
+          git clone --depth 1 --branch "$AP_VERSION" \
+            https://github.com/ArchipelagoMW/Archipelago.git /tmp/archipelago-validate \
+            || git clone --depth 1 --branch "v${AP_VERSION}" \
+              https://github.com/ArchipelagoMW/Archipelago.git /tmp/archipelago-validate \
+            || git clone --depth 1 https://github.com/ArchipelagoMW/Archipelago.git /tmp/archipelago-validate
+          python3 scripts/ci/validate_worlds.py \
+            --archipelago-dir /tmp/archipelago-validate \
+            "${worlds[@]}"
 
       - name: No world TOML changes
         if: needs.discover.outputs.has_worlds != 'true'

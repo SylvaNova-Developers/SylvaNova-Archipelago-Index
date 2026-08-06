@@ -54,7 +54,17 @@ def check_url(url: str, timeout: float = 30.0) -> None:
             raise RuntimeError(f"HTTP {response.status} for {url}")
 
 
-def validate_world(path: Path, *, check_urls: bool) -> list[str]:
+def is_core_world(apworld_id: str, archipelago_dir: Path) -> bool:
+    world_dir = archipelago_dir / "worlds" / apworld_id
+    return world_dir.is_dir() and (world_dir / "__init__.py").is_file()
+
+
+def validate_world(
+    path: Path,
+    *,
+    check_urls: bool,
+    archipelago_dir: Path | None = None,
+) -> list[str]:
     errors: list[str] = []
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -65,6 +75,19 @@ def validate_world(path: Path, *, check_urls: bool) -> list[str]:
         errors.append(f"{path}: missing required `name` field")
 
     if data.get("supported") is True:
+        if "home" not in data or not str(data["home"]).strip():
+            errors.append(f"{path}: supported worlds require a `home` field")
+        if archipelago_dir is None:
+            errors.append(
+                f"{path}: supported=true requires --archipelago-dir to verify built-in world membership"
+            )
+        else:
+            apworld_id = path.stem
+            if not is_core_world(apworld_id, archipelago_dir):
+                errors.append(
+                    f"{path}: supported=true but worlds/{apworld_id} is not a built-in "
+                    "Archipelago world at the pinned version"
+                )
         return errors
 
     versions = data.get("versions")
@@ -115,6 +138,11 @@ def main() -> int:
         action="store_true",
         help="Skip HTTP reachability checks",
     )
+    parser.add_argument(
+        "--archipelago-dir",
+        type=Path,
+        help="Path to an Archipelago checkout (required to validate supported=true worlds)",
+    )
     args = parser.parse_args()
 
     if args.worlds:
@@ -127,7 +155,13 @@ def main() -> int:
         if not path.is_file():
             all_errors.append(f"{path}: file does not exist")
             continue
-        all_errors.extend(validate_world(path, check_urls=not args.skip_url_check))
+        all_errors.extend(
+            validate_world(
+                path,
+                check_urls=not args.skip_url_check,
+                archipelago_dir=args.archipelago_dir,
+            )
+        )
 
     if all_errors:
         print("Validation failed:", file=sys.stderr)

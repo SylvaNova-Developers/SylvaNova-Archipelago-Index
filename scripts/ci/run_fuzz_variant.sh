@@ -104,11 +104,11 @@ cp -f /ap/empty.apworld worlds/empty.apworld
 bash "$INDEX_ROOT/scripts/ci/download_apworld.sh" "$INDEX_ROOT" "$APWORLD_NAME" /tmp/apworld-download
 if [[ -f "/tmp/apworld-download/${APWORLD_NAME}.apworld" ]]; then
   cp -f "/tmp/apworld-download/${APWORLD_NAME}.apworld" "worlds/${APWORLD_NAME}.apworld"
+elif [[ -d "worlds/${APWORLD_NAME}" && -f "worlds/${APWORLD_NAME}/__init__.py" ]]; then
+  echo "Using built-in Archipelago world: ${APWORLD_NAME}" >&2
 else
-  echo "No downloadable apworld for $APWORLD_NAME (supported/core?); skipping fuzz" >&2
-  mkdir -p fuzz_output
-  echo '{"stats":{"total":0,"success":0,"failure":0,"timeout":0,"ignored":0},"errors":{}}' > fuzz_output/report.json
-  exit 0
+  echo "No apworld available for ${APWORLD_NAME}; refusing to skip fuzz" >&2
+  exit 1
 fi
 
 META_ARGS=()
