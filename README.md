@@ -95,7 +95,7 @@ Recommended repo settings:
 
 ## Post-merge publish + lobby refresh
 
-Workflow: `.github/workflows/post-merge.yml`
+Workflow: `.github/workflows/post-merge-publish.yml`
 
 After `main` advances (skips commits marked `[skip ci]`):
 
