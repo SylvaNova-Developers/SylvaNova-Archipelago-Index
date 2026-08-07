@@ -204,10 +204,11 @@ jobs:
     if: |
       always()
       && needs.discover.result == 'success'
-      && needs.discover.outputs.has_worlds == 'true'
       && needs.validate.result == 'success'
       && needs.fuzz-ok.result == 'success'
       && github.event.pull_request.draft == false
+      && (needs.discover.outputs.has_worlds == 'true'
+          || github.head_ref == 'bot/update-index-lock')
     runs-on: ubuntu-latest
     steps:
       - name: Enable auto-merge and merge
@@ -219,6 +220,8 @@ jobs:
           # Prefer GitHub auto-merge (respects branch protection). If the repo
           # has no required checks configured yet, fall back to a direct squash
           # merge now that validate+fuzz already succeeded in this workflow.
+          # Also merges bot/update-index-lock (lockfile-only) once required
+          # checks are green — those PRs skip the fuzz matrix.
           if gh pr merge "$PR" --repo "${{ github.repository }}" --auto --squash; then
             echo "Auto-merge enabled (or completed)"
           else

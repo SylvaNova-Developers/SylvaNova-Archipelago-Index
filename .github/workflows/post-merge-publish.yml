@@ -27,9 +27,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Skip when main advanced via our own lockfile PR merge (commit message
-    # still carries [skip ci] from the squashed lock commit, or title match).
-    if: ${{ github.event_name == 'workflow_dispatch' || (!contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, 'Update index.lock')) }}
+    # Skip when main advanced via our own lockfile PR merge (squash message
+    # contains "Update index.lock"). Do not rely on [skip ci] — that marker
+    # also suppresses pull_request CI on the lockfile PR itself.
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'Update index.lock') }}
     steps:
       - name: Checkout index
         uses: actions/checkout@v4
@@ -86,7 +87,10 @@ jobs:
           BRANCH="bot/update-index-lock"
           git checkout -B "$BRANCH"
           git add index.lock
-          git commit -m "Update index lock [skip ci]"
+          # Do NOT include [skip ci] — GitHub skips pull_request workflows for
+          # that marker, so required checks (validate / fuzz-ok) never appear.
+          # Loop prevention uses the "Update index.lock" title/message instead.
+          git commit -m "Update index.lock"
           git push -u origin "HEAD:refs/heads/${BRANCH}" --force
 
           EXISTING=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
