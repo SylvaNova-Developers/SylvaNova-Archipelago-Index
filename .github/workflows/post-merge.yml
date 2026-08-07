@@ -45,7 +45,8 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: _lobby/apwm -> target
+          # apwm is a workspace member; cargo writes artifacts to _lobby/target
+          workspaces: _lobby -> target
 
       - name: Build apwm
         run: cargo build --manifest-path _lobby/apwm/Cargo.toml --features cli --release
@@ -53,7 +54,13 @@ jobs:
       - name: Run apwm update
         run: |
           set -euo pipefail
-          APWM="$GITHUB_WORKSPACE/_lobby/apwm/target/release/apwm"
+          # Workspace root is _lobby/, so the binary lands here (not _lobby/apwm/target).
+          APWM="$GITHUB_WORKSPACE/_lobby/target/release/apwm"
+          if [ ! -x "$APWM" ]; then
+            echo "apwm binary missing at $APWM; searching..." >&2
+            find "$GITHUB_WORKSPACE/_lobby" -type f -name apwm -perm -111 -print >&2 || true
+            exit 1
+          fi
           "$APWM" update -i "$GITHUB_WORKSPACE"
 
       - name: Commit index.lock if changed
