@@ -94,11 +94,10 @@ jobs:
             PR="$EXISTING"
             echo "Reusing open lockfile PR #$PR"
           else
+            BODY='Automated `index.lock` refresh from **Post-merge publish**. Lockfile-only change; PR CI validate + fuzz-ok should pass quickly, then auto-merge.'
             gh pr create --base main --head "$BRANCH" \
               --title "Update index.lock" \
-              --body "Automated \`index.lock\` refresh from **Post-merge publish**.
-
-Lockfile-only change; PR CI validate + fuzz-ok should pass quickly, then auto-merge."
+              --body "$BODY"
             PR=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number')
             echo "Opened lockfile PR #$PR"
           fi
