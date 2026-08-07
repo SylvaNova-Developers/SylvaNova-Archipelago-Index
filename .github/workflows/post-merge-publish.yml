@@ -27,9 +27,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Skip when main advanced via our own lockfile PR merge (commit message
-    # still carries [skip ci] from the squashed lock commit, or title match).
-    if: ${{ github.event_name == 'workflow_dispatch' || (!contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, 'Update index.lock')) }}
+    # Skip when main advanced via our own lockfile PR merge (squash message
+    # contains "Update index.lock"). Do not rely on [skip ci] — that marker
+    # also suppresses pull_request CI on the lockfile PR itself.
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'Update index.lock') }}
     steps:
       - name: Checkout index
         uses: actions/checkout@v4
@@ -86,7 +87,10 @@ jobs:
           BRANCH="bot/update-index-lock"
           git checkout -B "$BRANCH"
           git add index.lock
-          git commit -m "Update index lock [skip ci]"
+          # Do NOT include [skip ci] — GitHub skips pull_request workflows for
+          # that marker, so required checks (validate / fuzz-ok) never appear.
+          # Loop prevention uses the "Update index.lock" title/message instead.
+          git commit -m "Update index.lock"
           git push -u origin "HEAD:refs/heads/${BRANCH}" --force
 
           EXISTING=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
@@ -103,14 +107,10 @@ jobs:
           fi
           echo "pr=$PR" >> "$GITHUB_OUTPUT"
 
-          # Prefer GitHub auto-merge (respects required checks). Fall back to
-          # waiting on checks then squash-merging.
-          if ! gh pr merge "$PR" --auto --squash; then
-            echo "Auto-merge enable failed; will wait for checks then merge"
-          fi
-
-          echo "Waiting for PR #$PR to merge..."
-          for _ in $(seq 1 60); do
+          # allow_auto_merge is often off — do not rely on --auto. Wait for the
+          # required check names, then squash-merge directly.
+          echo "Waiting for required checks on PR #$PR, then squash-merging..."
+          for _ in $(seq 1 120); do
             STATE=$(gh pr view "$PR" --json state --jq .state)
             if [ "$STATE" = "MERGED" ]; then
               echo "PR #$PR merged"
@@ -120,12 +120,23 @@ jobs:
               echo "PR #$PR was closed without merging" >&2
               exit 1
             fi
-            # Once checks are green, try a direct squash merge (in case auto-merge
-            # is disabled on the repo).
-            if gh pr checks "$PR" --fail-fast >/dev/null 2>&1; then
-              gh pr merge "$PR" --squash --delete-branch || true
+
+            ROLLUP=$(gh pr view "$PR" --json statusCheckRollup \
+              --jq '[.statusCheckRollup[] | {name,status,conclusion}]')
+            VALIDATE=$(echo "$ROLLUP" | jq -r '.[] | select(.name=="validate") | "\(.status):\(.conclusion // "")"' | head -1)
+            FUZZOK=$(echo "$ROLLUP" | jq -r '.[] | select(.name=="fuzz-ok") | "\(.status):\(.conclusion // "")"' | head -1)
+
+            if [ "$VALIDATE" = "COMPLETED:SUCCESS" ] && [ "$FUZZOK" = "COMPLETED:SUCCESS" ]; then
+              if gh pr merge "$PR" --squash --delete-branch; then
+                echo "Squash-merged PR #$PR"
+                exit 0
+              fi
+              echo "Merge attempt failed; will retry" >&2
+            elif echo "$VALIDATE$FUZZOK" | grep -q 'COMPLETED:FAILURE\|COMPLETED:CANCELLED\|COMPLETED:TIMED_OUT'; then
+              echo "Required checks failed on PR #$PR (validate=$VALIDATE fuzz-ok=$FUZZOK)" >&2
+              exit 1
             fi
-            sleep 30
+            sleep 15
           done
           echo "Timed out waiting for PR #$PR to merge" >&2
           gh pr view "$PR"
