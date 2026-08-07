@@ -71,7 +71,9 @@ jobs:
       - name: Open PR for index.lock if changed
         id: lock_pr
         env:
-          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          # PR API via GITHUB_TOKEN; BOT_PAT is often missing pull_requests:write.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BOT_PAT: ${{ secrets.BOT_PAT }}
         run: |
           set -euo pipefail
           git config user.name "sylvanova-index-bot"
@@ -94,6 +96,7 @@ jobs:
           git push -u origin "HEAD:refs/heads/${BRANCH}" --force
 
           EXISTING=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          CREATED=false
           if [ -n "$EXISTING" ]; then
             PR="$EXISTING"
             echo "Reusing open lockfile PR #$PR"
@@ -104,8 +107,15 @@ jobs:
               --body "$BODY"
             PR=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number')
             echo "Opened lockfile PR #$PR"
+            CREATED=true
           fi
           echo "pr=$PR" >> "$GITHUB_OUTPUT"
+
+          # GITHUB_TOKEN-created PRs do not start pull_request workflows; nudge.
+          if [ "$CREATED" = "true" ] && [ -n "${BOT_PAT:-}" ]; then
+            git commit --allow-empty -m "ci: trigger PR checks for index.lock"
+            git push origin "HEAD:refs/heads/${BRANCH}"
+          fi
 
           # allow_auto_merge is often off — do not rely on --auto. Wait for the
           # required check names, then squash-merge directly.
