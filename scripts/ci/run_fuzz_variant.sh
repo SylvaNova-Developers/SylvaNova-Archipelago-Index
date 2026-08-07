@@ -96,7 +96,7 @@ if [[ ! -f /ap/empty.apworld ]]; then
   if [[ -f "$tmpdir/empty/empty.apworld" ]]; then
     sudo cp "$tmpdir/empty/empty.apworld" /ap/empty.apworld
   elif [[ -d "$tmpdir/empty/empty" ]]; then
-    (cd "$tmpdir/empty/empty" && zip -r /tmp/empty.apworld .)
+    (cd "$tmpdir/empty" && zip -r /tmp/empty.apworld empty)
     sudo mv /tmp/empty.apworld /ap/empty.apworld
   else
     echo "empty-apworld clone has unexpected layout" >&2
