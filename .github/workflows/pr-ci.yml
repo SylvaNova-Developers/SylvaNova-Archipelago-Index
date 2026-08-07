@@ -11,13 +11,19 @@ name: PR CI
 # Fuzz run floors on GitHub-hosted runners (full upstream uses 5000/500 on
 # self-hosted Taskcluster). The failure-rate gate is <2.5% for this fork.
 
+# Also runs on push to bot/* branches so sync/lock publish can attach the
+# required validate/fuzz-ok checks to a commit without opening a PR
+# (GITHUB_TOKEN cannot create PRs unless the repo Actions setting allows it).
+
 on:
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [bot/sync-upstream, bot/update-index-lock]
 
 concurrency:
-  group: pr-ci-${{ github.event.pull_request.number }}
+  group: pr-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -38,11 +44,13 @@ jobs:
           fetch-depth: 0
 
       - id: list
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
         run: |
           set -euo pipefail
-          git fetch origin "${{ github.base_ref }}"
+          git fetch origin "$BASE_REF"
           worlds=$(python3 scripts/ci/changed_worlds.py \
-            --base "origin/${{ github.base_ref }}" \
+            --base "origin/${BASE_REF}" \
             --head HEAD \
             --json-array)
           echo "worlds=$worlds" >> "$GITHUB_OUTPUT"
@@ -104,6 +112,8 @@ jobs:
 
       - name: apwm changes + download
         if: needs.discover.outputs.has_worlds == 'true'
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
         run: |
           set -euo pipefail
           cargo build --manifest-path _lobby/apwm/Cargo.toml --features cli --release
@@ -118,7 +128,7 @@ jobs:
           # `apwm changes -f` expects a git remote URL to clone the base index from.
           "$APWM" changes -i . \
             -f "https://github.com/${{ github.repository }}.git" \
-            -r "${{ github.base_ref }}" \
+            -r "${BASE_REF}" \
             -o /tmp/apwm-out
           if [ -f /tmp/apwm-out/changes.json ]; then
             cat /tmp/apwm-out/changes.json
@@ -127,8 +137,11 @@ jobs:
   fuzz:
     name: fuzz
     needs: [discover, validate]
-    # Skip fuzz for upstream sync PRs (trust ionium CI; full matrix is too heavy).
-    if: needs.discover.outputs.has_worlds == 'true' && github.head_ref != 'bot/sync-upstream'
+    # Skip fuzz for upstream sync (trust ionium CI; full matrix is too heavy).
+    if: |
+      needs.discover.outputs.has_worlds == 'true'
+      && github.head_ref != 'bot/sync-upstream'
+      && github.ref_name != 'bot/sync-upstream'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:

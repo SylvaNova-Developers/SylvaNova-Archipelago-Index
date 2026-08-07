@@ -1,12 +1,15 @@
 name: Sync upstream
 
 # Keep this fork current with ionium-ap/Archipelago-index:main.
-# Direct pushes to main are blocked by required status checks (validate,
-# fuzz-ok), so sync opens bot/sync-upstream, waits for PR CI, then merges.
+#
+# Direct pushes to main need required checks (validate, fuzz-ok). Neither
+# GITHUB_TOKEN nor a contents-only BOT_PAT can open PRs on this repo, so we:
+#   1. Merge upstream onto bot/sync-upstream and push (BOT_PAT)
+#   2. Wait for PR CI (push trigger) validate + fuzz-ok on that commit
+#   3. Fast-forward main to the same SHA
 #
 # Secrets:
-#   BOT_PAT — used for git push (so PR synchronize events trigger workflows).
-#             Does not need pull-requests:write; PR create/merge use GITHUB_TOKEN.
+#   BOT_PAT — contents:write so the job can push bot/sync-upstream and main.
 
 on:
   schedule:
@@ -19,8 +22,8 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: write
-  issues: write
+  checks: read
+  actions: read
 
 jobs:
   sync:
@@ -42,12 +45,10 @@ jobs:
           git remote add upstream https://github.com/ionium-ap/Archipelago-index.git
           git fetch upstream main
 
-      - name: Open sync PR and merge
+      - name: Sync via bot branch + required checks
         env:
-          # PR API via GITHUB_TOKEN (workflow permissions). BOT_PAT often lacks
-          # pull_requests:write on fine-grained tokens.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BOT_PAT: ${{ secrets.BOT_PAT }}
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -74,85 +75,34 @@ jobs:
             fi
           fi
 
-          # Push with checkout remote (BOT_PAT) so later synchronize events run CI.
           git push -u origin "HEAD:refs/heads/${BRANCH}" --force
+          SHA=$(git rev-parse HEAD)
+          echo "Pushed $BRANCH @ $SHA — waiting for validate + fuzz-ok check runs"
 
-          EXISTING=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
-          CREATED=false
-          if [ -n "$EXISTING" ]; then
-            PR="$EXISTING"
-            echo "Reusing open sync PR #$PR"
-          else
-            BODY='Automated sync from `ionium-ap/Archipelago-index:main`. PR CI validate + fuzz-ok (fuzz skipped for sync) then merge.'
-            gh pr create --base main --head "$BRANCH" \
-              --title "Sync upstream Archipelago-index" \
-              --body "$BODY"
-            PR=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number')
-            echo "Opened sync PR #$PR"
-            CREATED=true
-          fi
-
-          # PRs opened with GITHUB_TOKEN do not trigger pull_request workflows.
-          # Nudge with an empty commit pushed via BOT_PAT so PR CI runs.
-          if [ "$CREATED" = "true" ] && [ -n "${BOT_PAT:-}" ]; then
-            git commit --allow-empty -m "ci: trigger PR checks for upstream sync"
-            git push origin "HEAD:refs/heads/${BRANCH}"
-          fi
-
-          # allow_auto_merge is often off. Wait for required checks, then merge.
-          echo "Waiting for required checks on PR #$PR, then merging..."
+          # PR CI runs on push to bot/sync-upstream (see pr-ci.yml). Poll the
+          # commit check-runs; once both required contexts are green, FF main.
           for _ in $(seq 1 120); do
-            STATE=$(gh pr view "$PR" --json state --jq .state)
-            if [ "$STATE" = "MERGED" ]; then
-              echo "PR #$PR merged"
+            RUNS=$(gh api "repos/${REPO}/commits/${SHA}/check-runs" --paginate)
+            VALIDATE=$(echo "$RUNS" | jq -r '[.check_runs[] | select(.name=="validate")] | sort_by(.completed_at // .started_at) | last | "\(.status // "missing"):\(.conclusion // "")"')
+            FUZZOK=$(echo "$RUNS" | jq -r '[.check_runs[] | select(.name=="fuzz-ok")] | sort_by(.completed_at // .started_at) | last | "\(.status // "missing"):\(.conclusion // "")"')
+            echo "validate=$VALIDATE fuzz-ok=$FUZZOK"
+
+            if [ "$VALIDATE" = "completed:success" ] && [ "$FUZZOK" = "completed:success" ]; then
+              echo "Required checks green — fast-forwarding main to $SHA"
+              git push origin "$SHA:refs/heads/main"
+              echo "main updated"
               exit 0
             fi
-            if [ "$STATE" = "CLOSED" ]; then
-              echo "PR #$PR was closed without merging" >&2
-              exit 1
-            fi
-
-            ROLLUP=$(gh pr view "$PR" --json statusCheckRollup \
-              --jq '[.statusCheckRollup[] | {name,status,conclusion}]')
-            VALIDATE=$(echo "$ROLLUP" | jq -r '.[] | select(.name=="validate") | "\(.status):\(.conclusion // "")"' | head -1)
-            FUZZOK=$(echo "$ROLLUP" | jq -r '.[] | select(.name=="fuzz-ok") | "\(.status):\(.conclusion // "")"' | head -1)
-
-            if [ "$VALIDATE" = "COMPLETED:SUCCESS" ] && [ "$FUZZOK" = "COMPLETED:SUCCESS" ]; then
-              if gh pr merge "$PR" --merge --delete-branch; then
-                echo "Merged PR #$PR"
-                exit 0
-              fi
-              if gh pr merge "$PR" --squash --delete-branch; then
-                echo "Squash-merged PR #$PR (merge commit unavailable)"
-                exit 0
-              fi
-              echo "Merge attempt failed; will retry" >&2
-            elif echo "$VALIDATE$FUZZOK" | grep -q 'COMPLETED:FAILURE\|COMPLETED:CANCELLED\|COMPLETED:TIMED_OUT'; then
-              echo "Required checks failed on PR #$PR (validate=$VALIDATE fuzz-ok=$FUZZOK)" >&2
+            if echo "$VALIDATE$FUZZOK" | grep -qi 'completed:failure\|completed:cancelled\|completed:timed_out'; then
+              echo "Required checks failed (validate=$VALIDATE fuzz-ok=$FUZZOK)" >&2
               exit 1
             fi
             sleep 15
           done
-          echo "Timed out waiting for PR #$PR to merge" >&2
-          gh pr view "$PR"
+          echo "Timed out waiting for checks on $SHA" >&2
           exit 1
 
-      - name: Open issue on sync failure
+      - name: Annotate sync failure
         if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set +e
-          title="Upstream sync failed ($(date -u +%Y-%m-%d))"
-          body="Automated sync from \`ionium-ap/Archipelago-index:main\` failed on run ${{ github.run_id }}.
-
-          See: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-          Likely causes: merge conflict, or required checks failing on the sync PR. Resolve manually, then re-run **Sync upstream**."
-          existing=$(gh issue list --state open --search "Upstream sync failed" --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --body "$body" || echo "Could not comment on issue #$existing"
-          else
-            gh issue create --title "$title" --body "$body" || echo "Could not create issue"
-          fi
-          exit 0
+          echo "::error::Upstream sync failed. Branch bot/sync-upstream may already have the merge; re-run after fixing checks, or open a PR from that branch manually if preferred."
