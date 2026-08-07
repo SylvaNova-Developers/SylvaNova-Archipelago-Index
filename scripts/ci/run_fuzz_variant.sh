@@ -58,15 +58,19 @@ if [[ ! -d .venv ]]; then
   # shellcheck disable=SC1091
   source .venv/bin/activate
   pip install --upgrade pip wheel
-  # Core deps used by Generate + fuzzer; ModuleUpdate pulls the rest when present.
   if [[ -f requirements.txt ]]; then
-    pip install -r requirements.txt || true
+    pip install -r requirements.txt
+    # Re-assert exact pins (other wheels may have floated typing_extensions, etc.).
+    pip install -r requirements.txt
   fi
-  python -m ModuleUpdate --yes 2>/dev/null || true
 else
   # shellcheck disable=SC1091
   source .venv/bin/activate
 fi
+
+# Archipelago's ModuleUpdate prompts on stdin when pins drift; that deadlocks CI
+# workers (EOFError). Install deps above, then skip further interactive updates.
+export SKIP_REQUIREMENTS_UPDATE=1
 
 # Install fuzzer entrypoint + hooks beside Archipelago.
 if [[ ! -f fuzz.py ]]; then
@@ -83,18 +87,21 @@ if [[ ! -d hooks ]]; then
   cp -f /tmp/ap-fuzzer-src/fuzz.py ./fuzz.py
 fi
 
-# empty-apworld for restrictive-starts gate
+# empty-apworld for restrictive-starts gate (zip the world package, not the repo root)
 if [[ ! -f /ap/empty.apworld ]]; then
   sudo mkdir -p /ap
   tmpdir="$(mktemp -d)"
   git clone --depth 1 https://github.com/ionium-ap/empty-apworld.git "$tmpdir/empty" \
     || git clone --depth 1 https://github.com/Eijebong/empty-apworld.git "$tmpdir/empty"
-  # Package whatever layout the repo uses into empty.apworld (zip).
   if [[ -f "$tmpdir/empty/empty.apworld" ]]; then
     sudo cp "$tmpdir/empty/empty.apworld" /ap/empty.apworld
-  else
-    (cd "$tmpdir/empty" && zip -r /tmp/empty.apworld . -x '*.git*')
+  elif [[ -d "$tmpdir/empty/empty" ]]; then
+    (cd "$tmpdir/empty/empty" && zip -r /tmp/empty.apworld .)
     sudo mv /tmp/empty.apworld /ap/empty.apworld
+  else
+    echo "empty-apworld clone has unexpected layout" >&2
+    find "$tmpdir/empty" -maxdepth 3 -print >&2
+    exit 1
   fi
 fi
 mkdir -p worlds
@@ -103,6 +110,14 @@ cp -f /ap/empty.apworld worlds/empty.apworld
 # Place the world under test.
 bash "$INDEX_ROOT/scripts/ci/download_apworld.sh" "$INDEX_ROOT" "$APWORLD_NAME" /tmp/apworld-download
 if [[ -f "/tmp/apworld-download/${APWORLD_NAME}.apworld" ]]; then
+  # Custom/index apworlds must win over built-in worlds/ with the same game name.
+  # Otherwise AP logs: "Did not load X.apworld as its game ... is already loaded"
+  # and we fuzz the wrong (core) implementation.
+  if [[ -d "worlds/${APWORLD_NAME}" ]]; then
+    echo "Removing built-in worlds/${APWORLD_NAME} so index apworld is loaded" >&2
+    rm -rf "worlds/${APWORLD_NAME}"
+  fi
+  # Also disable any other non-zip world dirs that might collide (hidden by leading dot).
   cp -f "/tmp/apworld-download/${APWORLD_NAME}.apworld" "worlds/${APWORLD_NAME}.apworld"
 elif [[ -d "worlds/${APWORLD_NAME}" && -f "worlds/${APWORLD_NAME}/__init__.py" ]]; then
   echo "Using built-in Archipelago world: ${APWORLD_NAME}" >&2
@@ -156,8 +171,10 @@ case "$VARIANT" in
     HOOK_ARGS=(--hook hooks.detect_output_placement_changes:Hook)
     ;;
   check-determinism)
+    # Determinism forks workers and uses a higher per-gen timeout; keep runs modest on GHA.
     HOOK_ARGS=(--hook hooks.determinism:Hook)
-    EXTRA_ARGS=(-t 30 -j 4)
+    EXTRA_ARGS=(-t 30 -j 2)
+    RUNS="${FUZZ_RUNS_DETERMINISM:-100}"
     ;;
   check-collect-accessibility)
     HOOK_ARGS=(--hook hooks.collect_accessibility_test:Hook)
@@ -187,8 +204,9 @@ if [[ ${#EXTRA_ARGS[@]} -eq 0 ]]; then
   JOBS_ARGS=(-t 10 -j "$(nproc)")
 fi
 
+echo "Starting fuzz: variant=$VARIANT runs=$RUNS args=${JOBS_ARGS[*]:-} ${EXTRA_ARGS[*]:-}"
 set +e
-python fuzz.py -g "$APWORLD_NAME" -r "$RUNS" -n 1 \
+python -u fuzz.py -g "$APWORLD_NAME" -r "$RUNS" -n 1 \
   "${JOBS_ARGS[@]}" "${EXTRA_ARGS[@]}" "${META_ARGS[@]}" "${HOOK_ARGS[@]}"
 FUZZ_STATUS=$?
 set -e
