@@ -203,20 +203,15 @@ jobs:
           set -euo pipefail
           has="${{ needs.discover.outputs.has_worlds }}"
           result="${{ needs.fuzz.result }}"
-          head_ref="${{ github.head_ref }}"
-          if [ "$head_ref" = "bot/sync-upstream" ]; then
-            echo "Upstream sync PR; fuzz gate skipped (validate still required)"
+          # On push events github.head_ref is empty; fuzz is skipped via the
+          # job if (ref_name == bot/sync-upstream or no world changes). Treat
+          # skipped the same as success so required check fuzz-ok stays green.
+          if [ "$result" = "success" ] || [ "$result" = "skipped" ]; then
+            echo "fuzz gate ok (has_worlds=$has result=$result)"
             exit 0
           fi
-          if [ "$has" = "true" ]; then
-            if [ "$result" != "success" ]; then
-              echo "fuzz matrix failed (result=$result)" >&2
-              exit 1
-            fi
-            echo "fuzz matrix passed"
-          else
-            echo "No apworld toml changes; fuzz gate skipped"
-          fi
+          echo "fuzz matrix failed (result=$result)" >&2
+          exit 1
 
   auto-merge:
     name: auto-merge
