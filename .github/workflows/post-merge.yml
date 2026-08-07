@@ -2,11 +2,12 @@ name: Post-merge publish
 
 # After main advances (human merge, auto-merge, or upstream sync):
 #   1. Rebuild index.lock with apwm update
-#   2. Commit the lockfile with [skip ci] (avoids a publish loop)
+#   2. If lock changed, open a bot PR (direct pushes to main are blocked by
+#      required status checks) and wait for it to merge
 #   3. Optionally hit the SylvaNova lobby /worlds/refresh when secrets exist
 #
 # Secrets:
-#   BOT_PAT              — push lockfile commits (falls back to GITHUB_TOKEN)
+#   BOT_PAT              — create/push lockfile PR (falls back to GITHUB_TOKEN)
 #   LOBBY_REFRESH_URL    — optional, e.g. https://lobby.example/worlds/refresh
 #   LOBBY_ADMIN_TOKEN    — optional, X-Api-Key value for that endpoint
 
@@ -21,11 +22,14 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]') }}
+    # Skip when main advanced via our own lockfile PR merge (commit message
+    # still carries [skip ci] from the squashed lock commit, or title match).
+    if: ${{ github.event_name == 'workflow_dispatch' || (!contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, 'Update index.lock')) }}
     steps:
       - name: Checkout index
         uses: actions/checkout@v4
@@ -63,18 +67,70 @@ jobs:
           fi
           "$APWM" update -i "$GITHUB_WORKSPACE"
 
-      - name: Commit index.lock if changed
+      - name: Open PR for index.lock if changed
+        id: lock_pr
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "sylvanova-index-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           if git diff --quiet -- index.lock; then
             echo "index.lock unchanged"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+          BRANCH="bot/update-index-lock"
+          git checkout -B "$BRANCH"
           git add index.lock
           git commit -m "Update index lock [skip ci]"
-          git push origin HEAD:main
+          git push -u origin "HEAD:refs/heads/${BRANCH}" --force
+
+          EXISTING=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            PR="$EXISTING"
+            echo "Reusing open lockfile PR #$PR"
+          else
+            gh pr create --base main --head "$BRANCH" \
+              --title "Update index.lock" \
+              --body "Automated \`index.lock\` refresh from **Post-merge publish**.
+
+Lockfile-only change; PR CI validate + fuzz-ok should pass quickly, then auto-merge."
+            PR=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number')
+            echo "Opened lockfile PR #$PR"
+          fi
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+
+          # Prefer GitHub auto-merge (respects required checks). Fall back to
+          # waiting on checks then squash-merging.
+          if ! gh pr merge "$PR" --auto --squash; then
+            echo "Auto-merge enable failed; will wait for checks then merge"
+          fi
+
+          echo "Waiting for PR #$PR to merge..."
+          for _ in $(seq 1 60); do
+            STATE=$(gh pr view "$PR" --json state --jq .state)
+            if [ "$STATE" = "MERGED" ]; then
+              echo "PR #$PR merged"
+              exit 0
+            fi
+            if [ "$STATE" = "CLOSED" ]; then
+              echo "PR #$PR was closed without merging" >&2
+              exit 1
+            fi
+            # Once checks are green, try a direct squash merge (in case auto-merge
+            # is disabled on the repo).
+            if gh pr checks "$PR" --fail-fast >/dev/null 2>&1; then
+              gh pr merge "$PR" --squash --delete-branch || true
+            fi
+            sleep 30
+          done
+          echo "Timed out waiting for PR #$PR to merge" >&2
+          gh pr view "$PR"
+          exit 1
 
       - name: Refresh lobby (optional)
         env:
