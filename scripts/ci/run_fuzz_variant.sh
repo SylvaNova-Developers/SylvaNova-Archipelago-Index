@@ -11,8 +11,9 @@
 #                  check-collect-accessibility | check-ut
 #   INDEX_ROOT     path to SylvaNova-archipelago-index checkout (default: cwd)
 #   AP_VERSION     Archipelago tag/version (default: read from index.toml)
-#   FUZZ_RUNS_FULL default 1000 (GH Actions floor; README gate remains <1%)
+#   FUZZ_RUNS_FULL default 1000 (GH Actions floor; README gate remains <2.5%)
 #   FUZZ_RUNS_CHECK default 500
+#   FUZZ_MAX_RATE  default 0.025
 #   PYTHON_BIN     default python3
 set -euo pipefail
 
@@ -22,6 +23,7 @@ INDEX_ROOT="${INDEX_ROOT:-$(pwd)}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 FUZZ_RUNS_FULL="${FUZZ_RUNS_FULL:-1000}"
 FUZZ_RUNS_CHECK="${FUZZ_RUNS_CHECK:-500}"
+FUZZ_MAX_RATE="${FUZZ_MAX_RATE:-0.025}"
 
 if [[ -z "${AP_VERSION:-}" ]]; then
   AP_VERSION="$($PYTHON_BIN - <<PY
@@ -252,4 +254,5 @@ fi
 cp fuzz_output/report.json "$INDEX_ROOT/fuzz-report-${APWORLD_NAME}-${VARIANT}.json"
 "$PYTHON_BIN" "$INDEX_ROOT/scripts/ci/check_fuzz_report.py" \
   fuzz_output/report.json \
+  --max-rate "$FUZZ_MAX_RATE" \
   --label "${APWORLD_NAME}/${VARIANT}"

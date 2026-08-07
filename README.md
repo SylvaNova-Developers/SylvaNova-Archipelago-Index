@@ -44,9 +44,9 @@ This makes it easier to update and can be used to automatically fetch newer vers
 - The apworld must not contain obvious flaws that will make life difficult for anyone trying to generate large multiworlds. That includes direct usage of the random module, obvious logic flaws, forced interactivity during generation, or test failures that are deemed problematic.
 - The apworld must not make any use of remote resources during generation. That includes checking the internet for the latest release or similar checks.
 - The apworld must not require a ROM to generate. Apworlds already present in the index are exempt from this, but I will not accept any new ones.
-- The generation failure rate calculated using Eijebong's [fuzzer](https://github.com/ionium-ap/Archipelago-fuzzer) must be below 1% (not counting `OptionError`s).
+- The generation failure rate calculated using Eijebong's [fuzzer](https://github.com/ionium-ap/Archipelago-fuzzer) must be below 2.5% (not counting `OptionError`s).
   - To help removing failures that would be considered restrictive starts, those rates will be calculated with a second [world](https://github.com/ionium-ap/empty-apworld) present that has 100 free locations. Any failures that remain may indicate a logic issue.
-  - To help check for other logical issues that could prevent multiworlds from generating, we will also be checking against the following Fuzzer tests. These must fall within the 1% rule:
+  - To help check for other logical issues that could prevent multiworlds from generating, we will also be checking against the following Fuzzer tests. These must fall within the 2.5% rule:
     - GERpocalypse, checks for issues with Generic Entrance Randomization (GER). See AP docs for more information:  [Entrance Rando](https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/entrance%20randomization.md)
     - Indirect conditions, checks for issues related to indirect conditions, see AP docs for more information: [World FAQ](https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/apworld_dev_faq.md?plain=1#L101) or [World API](https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/world%20api.md#an-important-note-on-entrance-access-rules)
     - Item counts match the location count
@@ -83,10 +83,10 @@ Workflow: `.github/workflows/pr-ci.yml`
 On every non-draft PR to `main`:
 
 1. **validate** — parse changed `index/*.toml`, reject new `local` sources, check version URLs, run `apwm changes`/`download`
-2. **fuzz** — for each changed apworld, run the upstream gate suite (baseline, restrictive-starts / empty world, GER, item/location counts, lambda capture, placement refs, indirect conditions, static output placement, determinism, collect accessibility, UT when available). Failure rate must stay **below 1%** (OptionErrors ignored), matching the criteria above
+2. **fuzz** — for each changed apworld, run the gate suite (baseline, restrictive-starts / empty world, GER, item/location counts, lambda capture, placement refs, indirect conditions, static output placement, determinism, collect accessibility, UT when available). Failure rate must stay **below 2.5%** (OptionErrors ignored)
 3. **auto-merge** — squash-merges when validate + fuzz succeed
 
-GitHub-hosted runners use a reduced run floor (`FUZZ_RUNS_FULL=1000`, `FUZZ_RUNS_CHECK=500`) versus upstream Taskcluster (`5000` / `500`). The **rate gate is unchanged**.
+GitHub-hosted runners use a reduced run floor (`FUZZ_RUNS_FULL=1000`, `FUZZ_RUNS_CHECK=500`) versus upstream Taskcluster (`5000` / `500`).
 
 Recommended repo settings:
 

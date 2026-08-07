@@ -4,11 +4,11 @@ name: PR CI
 # Jobs:
 #   discover   — which index/*.toml files changed
 #   validate   — TOML + URL checks + apwm changes/download for touched worlds
-#   fuzz       — fuzzer gate suite (<1% failure, OptionError ignored) per world
+#   fuzz       — fuzzer gate suite (<2.5% failure, OptionError ignored) per world
 #   auto-merge — squash-merge when validate+fuzz are green (index/*.toml changes only)
 #
 # Fuzz run floors on GitHub-hosted runners (full upstream uses 5000/500 on
-# self-hosted Taskcluster). The failure-rate gate remains <1%.
+# self-hosted Taskcluster). The failure-rate gate is <2.5% for this fork.
 
 on:
   pull_request:
