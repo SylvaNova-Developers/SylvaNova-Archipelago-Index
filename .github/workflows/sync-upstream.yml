@@ -4,9 +4,11 @@ name: Sync upstream
 #
 # Direct pushes to main need required checks (validate, fuzz-ok). Neither
 # GITHUB_TOKEN nor a contents-only BOT_PAT can open PRs on this repo, so we:
-#   1. Merge upstream onto bot/sync-upstream and push (BOT_PAT)
-#   2. Wait for PR CI (push trigger) validate + fuzz-ok on that commit
-#   3. Fast-forward main to the same SHA
+#   1. Reset to origin/main tip (not a stale workflow_dispatch SHA)
+#   2. Merge upstream onto bot/sync-upstream and push (BOT_PAT)
+#   3. Pin .github/workflows from origin/main onto that branch so PR CI uses
+#      current gate logic (push workflows come from the branch commit)
+#   4. Wait for validate + fuzz-ok on that commit, then FF main
 #
 # Secrets:
 #   BOT_PAT — contents:write so the job can push bot/sync-upstream and main.
@@ -40,10 +42,11 @@ jobs:
           git config user.name "sylvanova-index-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch upstream main
+      - name: Fetch remotes
         run: |
           git remote add upstream https://github.com/ionium-ap/Archipelago-index.git
           git fetch upstream main
+          git fetch origin main
 
       - name: Sync via bot branch + required checks
         env:
@@ -51,6 +54,11 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+
+          # workflow_dispatch / re-runs pin github.sha to an old commit. Always
+          # sync from the live main tip so bot-branch CI gets current workflows.
+          git checkout -B main origin/main
+          git reset --hard origin/main
 
           OUR=$(git rev-parse HEAD)
           THEIR=$(git rev-parse upstream/main)
@@ -75,12 +83,16 @@ jobs:
             fi
           fi
 
+          # Push workflows are read from this commit — pin them to origin/main.
+          git checkout origin/main -- .github/workflows/
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: pin Actions workflows from main for bot sync CI"
+          fi
+
           git push -u origin "HEAD:refs/heads/${BRANCH}" --force
           SHA=$(git rev-parse HEAD)
           echo "Pushed $BRANCH @ $SHA — waiting for validate + fuzz-ok check runs"
 
-          # PR CI runs on push to bot/sync-upstream (see pr-ci.yml). Poll the
-          # commit check-runs; once both required contexts are green, FF main.
           for _ in $(seq 1 120); do
             RUNS=$(gh api "repos/${REPO}/commits/${SHA}/check-runs" --paginate)
             VALIDATE=$(echo "$RUNS" | jq -r '[.check_runs[] | select(.name=="validate")] | sort_by(.completed_at // .started_at) | last | "\(.status // "missing"):\(.conclusion // "")"')
@@ -105,4 +117,4 @@ jobs:
       - name: Annotate sync failure
         if: failure()
         run: |
-          echo "::error::Upstream sync failed. Branch bot/sync-upstream may already have the merge; re-run after fixing checks, or open a PR from that branch manually if preferred."
+          echo "::error::Upstream sync failed. Re-run Sync upstream (use Run workflow, not Re-run on an old job) after CI on bot/sync-upstream is green."

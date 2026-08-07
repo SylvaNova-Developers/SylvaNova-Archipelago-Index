@@ -38,6 +38,14 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
 
+      - name: Refresh to live main tip
+        run: |
+          set -euo pipefail
+          # workflow_dispatch re-runs pin github.sha; always publish from tip.
+          git fetch origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
       - name: Checkout lobby (for apwm)
         uses: actions/checkout@v4
         with:
@@ -78,6 +86,11 @@ jobs:
           git config user.name "sylvanova-index-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # Prefer live main tip (re-runs can pin a stale github.sha).
+          git fetch origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
           if git diff --quiet -- index.lock; then
             echo "index.lock unchanged"
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -90,6 +103,13 @@ jobs:
           git add index.lock
           # Do NOT include [skip ci] — that skips push-triggered workflows too.
           git commit -m "Update index.lock"
+
+          # Push workflows come from this commit — pin gate logic from main.
+          git checkout origin/main -- .github/workflows/
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: pin Actions workflows from main for lock CI"
+          fi
+
           git push -u origin "HEAD:refs/heads/${BRANCH}" --force
           SHA=$(git rev-parse HEAD)
           echo "Pushed $BRANCH @ $SHA — waiting for validate + fuzz-ok"
