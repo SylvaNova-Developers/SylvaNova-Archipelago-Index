@@ -64,7 +64,7 @@ This makes it easier to update and can be used to automatically fetch newer vers
 
 This fork tracks [`ionium-ap/Archipelago-index`](https://github.com/ionium-ap/Archipelago-index) `main` automatically and accepts PRs through GitHub Actions (no GitLab / Taskcluster required).
 
-Discord request bot scaffold (portable; split to its own repo when ready): see [`discord-bot/`](discord-bot/).
+Discord request bot (portable; link → discover → confirm → PR): see [`discord-bot/`](discord-bot/).
 
 ## Upstream sync
 
