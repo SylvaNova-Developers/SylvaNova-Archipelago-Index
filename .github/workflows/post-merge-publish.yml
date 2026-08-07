@@ -2,12 +2,13 @@ name: Post-merge publish
 
 # After main advances (human merge, auto-merge, or upstream sync):
 #   1. Rebuild index.lock with apwm update
-#   2. If lock changed, open a bot PR (direct pushes to main are blocked by
-#      required status checks) and wait for it to merge
+#   2. If lock changed, push bot/update-index-lock, wait for validate+fuzz-ok
+#      on that commit, then fast-forward main (no PR create — GITHUB_TOKEN/BOT_PAT
+#      often cannot open PRs on this repo)
 #   3. Optionally hit the SylvaNova lobby /worlds/refresh when secrets exist
 #
 # Secrets:
-#   BOT_PAT              — create/push lockfile PR (falls back to GITHUB_TOKEN)
+#   BOT_PAT              — contents:write for pushes (falls back to GITHUB_TOKEN)
 #   LOBBY_REFRESH_URL    — optional, e.g. https://lobby.example/worlds/refresh
 #   LOBBY_ADMIN_TOKEN    — optional, X-Api-Key value for that endpoint
 
@@ -22,14 +23,13 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: write
+  checks: read
+  actions: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Skip when main advanced via our own lockfile PR merge (squash message
-    # contains "Update index.lock"). Do not rely on [skip ci] — that marker
-    # also suppresses pull_request CI on the lockfile PR itself.
+    # Skip when main advanced via our own lockfile publish.
     if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'Update index.lock') }}
     steps:
       - name: Checkout index
@@ -68,12 +68,11 @@ jobs:
           fi
           "$APWM" update -i "$GITHUB_WORKSPACE"
 
-      - name: Open PR for index.lock if changed
+      - name: Publish index.lock via bot branch + required checks
         id: lock_pr
         env:
-          # PR API via GITHUB_TOKEN; BOT_PAT is often missing pull_requests:write.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BOT_PAT: ${{ secrets.BOT_PAT }}
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           git config user.name "sylvanova-index-bot"
@@ -89,67 +88,31 @@ jobs:
           BRANCH="bot/update-index-lock"
           git checkout -B "$BRANCH"
           git add index.lock
-          # Do NOT include [skip ci] — GitHub skips pull_request workflows for
-          # that marker, so required checks (validate / fuzz-ok) never appear.
-          # Loop prevention uses the "Update index.lock" title/message instead.
+          # Do NOT include [skip ci] — that skips push-triggered workflows too.
           git commit -m "Update index.lock"
           git push -u origin "HEAD:refs/heads/${BRANCH}" --force
+          SHA=$(git rev-parse HEAD)
+          echo "Pushed $BRANCH @ $SHA — waiting for validate + fuzz-ok"
 
-          EXISTING=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
-          CREATED=false
-          if [ -n "$EXISTING" ]; then
-            PR="$EXISTING"
-            echo "Reusing open lockfile PR #$PR"
-          else
-            BODY='Automated `index.lock` refresh from **Post-merge publish**. Lockfile-only change; PR CI validate + fuzz-ok should pass quickly, then auto-merge.'
-            gh pr create --base main --head "$BRANCH" \
-              --title "Update index.lock" \
-              --body "$BODY"
-            PR=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number')
-            echo "Opened lockfile PR #$PR"
-            CREATED=true
-          fi
-          echo "pr=$PR" >> "$GITHUB_OUTPUT"
-
-          # GITHUB_TOKEN-created PRs do not start pull_request workflows; nudge.
-          if [ "$CREATED" = "true" ] && [ -n "${BOT_PAT:-}" ]; then
-            git commit --allow-empty -m "ci: trigger PR checks for index.lock"
-            git push origin "HEAD:refs/heads/${BRANCH}"
-          fi
-
-          # allow_auto_merge is often off — do not rely on --auto. Wait for the
-          # required check names, then squash-merge directly.
-          echo "Waiting for required checks on PR #$PR, then squash-merging..."
           for _ in $(seq 1 120); do
-            STATE=$(gh pr view "$PR" --json state --jq .state)
-            if [ "$STATE" = "MERGED" ]; then
-              echo "PR #$PR merged"
+            RUNS=$(gh api "repos/${REPO}/commits/${SHA}/check-runs" --paginate)
+            VALIDATE=$(echo "$RUNS" | jq -r '[.check_runs[] | select(.name=="validate")] | sort_by(.completed_at // .started_at) | last | "\(.status // "missing"):\(.conclusion // "")"')
+            FUZZOK=$(echo "$RUNS" | jq -r '[.check_runs[] | select(.name=="fuzz-ok")] | sort_by(.completed_at // .started_at) | last | "\(.status // "missing"):\(.conclusion // "")"')
+            echo "validate=$VALIDATE fuzz-ok=$FUZZOK"
+
+            if [ "$VALIDATE" = "completed:success" ] && [ "$FUZZOK" = "completed:success" ]; then
+              echo "Required checks green — fast-forwarding main to $SHA"
+              git push origin "$SHA:refs/heads/main"
+              echo "main updated with index.lock"
               exit 0
             fi
-            if [ "$STATE" = "CLOSED" ]; then
-              echo "PR #$PR was closed without merging" >&2
-              exit 1
-            fi
-
-            ROLLUP=$(gh pr view "$PR" --json statusCheckRollup \
-              --jq '[.statusCheckRollup[] | {name,status,conclusion}]')
-            VALIDATE=$(echo "$ROLLUP" | jq -r '.[] | select(.name=="validate") | "\(.status):\(.conclusion // "")"' | head -1)
-            FUZZOK=$(echo "$ROLLUP" | jq -r '.[] | select(.name=="fuzz-ok") | "\(.status):\(.conclusion // "")"' | head -1)
-
-            if [ "$VALIDATE" = "COMPLETED:SUCCESS" ] && [ "$FUZZOK" = "COMPLETED:SUCCESS" ]; then
-              if gh pr merge "$PR" --squash --delete-branch; then
-                echo "Squash-merged PR #$PR"
-                exit 0
-              fi
-              echo "Merge attempt failed; will retry" >&2
-            elif echo "$VALIDATE$FUZZOK" | grep -q 'COMPLETED:FAILURE\|COMPLETED:CANCELLED\|COMPLETED:TIMED_OUT'; then
-              echo "Required checks failed on PR #$PR (validate=$VALIDATE fuzz-ok=$FUZZOK)" >&2
+            if echo "$VALIDATE$FUZZOK" | grep -qi 'completed:failure\|completed:cancelled\|completed:timed_out'; then
+              echo "Required checks failed (validate=$VALIDATE fuzz-ok=$FUZZOK)" >&2
               exit 1
             fi
             sleep 15
           done
-          echo "Timed out waiting for PR #$PR to merge" >&2
-          gh pr view "$PR"
+          echo "Timed out waiting for checks on $SHA" >&2
           exit 1
 
       - name: Refresh lobby (optional)
