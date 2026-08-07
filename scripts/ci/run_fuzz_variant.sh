@@ -58,6 +58,8 @@ if [[ ! -d .venv ]]; then
   # shellcheck disable=SC1091
   source .venv/bin/activate
   pip install --upgrade pip wheel
+  # setuptools provides pkg_resources (still imported by some core worlds).
+  pip install 'setuptools>=75,<81'
   if [[ -f requirements.txt ]]; then
     pip install -r requirements.txt
     # Re-assert exact pins (other wheels may have floated typing_extensions, etc.).
@@ -87,25 +89,56 @@ if [[ ! -d hooks ]]; then
   cp -f /tmp/ap-fuzzer-src/fuzz.py ./fuzz.py
 fi
 
-# empty-apworld for restrictive-starts gate (zip the world package, not the repo root)
-if [[ ! -f /ap/empty.apworld ]]; then
+# empty world for restrictive-starts gate.
+# Prefer a directory world (reliable on AP 0.6.x). The release .apworld also works,
+# but zipping from git source omits compatible_version and fails APWorldContainer.
+if [[ ! -d worlds/empty || ! -f /ap/empty.apworld ]]; then
   sudo mkdir -p /ap
   tmpdir="$(mktemp -d)"
-  git clone --depth 1 https://github.com/ionium-ap/empty-apworld.git "$tmpdir/empty" \
+  git clone --depth 1 --branch v0.0.3 https://github.com/ionium-ap/empty-apworld.git "$tmpdir/empty" \
+    || git clone --depth 1 https://github.com/ionium-ap/empty-apworld.git "$tmpdir/empty" \
     || git clone --depth 1 https://github.com/Eijebong/empty-apworld.git "$tmpdir/empty"
-  if [[ -f "$tmpdir/empty/empty.apworld" ]]; then
-    sudo cp "$tmpdir/empty/empty.apworld" /ap/empty.apworld
-  elif [[ -d "$tmpdir/empty/empty" ]]; then
-    (cd "$tmpdir/empty/empty" && zip -r /tmp/empty.apworld .)
-    sudo mv /tmp/empty.apworld /ap/empty.apworld
+
+  if [[ -d "$tmpdir/empty/empty" ]]; then
+    rm -rf worlds/empty
+    cp -a "$tmpdir/empty/empty" worlds/empty
+    echo "Installed empty world as worlds/empty/ (directory)"
   else
-    echo "empty-apworld clone has unexpected layout" >&2
+    echo "empty-apworld clone missing empty/ package" >&2
     find "$tmpdir/empty" -maxdepth 3 -print >&2
     exit 1
   fi
+
+  # Keep /ap/empty.apworld for hooks.with_empty (copies into worlds/ if absent).
+  if [[ ! -f /ap/empty.apworld ]]; then
+    if curl -fsSL -o /tmp/empty.apworld \
+      'https://github.com/ionium-ap/empty-apworld/releases/download/v0.0.3/empty.apworld'; then
+      sudo mv /tmp/empty.apworld /ap/empty.apworld
+    else
+      # Build a release-compatible zip: package dir MUST be empty/... and include
+      # compatible_version so AP 0.6.x APWorldContainer can read the manifest.
+      python3 - <<'PY'
+import json, zipfile
+from pathlib import Path
+src = Path("worlds/empty")
+manifest = json.loads((src / "archipelago.json").read_text())
+manifest.setdefault("compatible_version", 7)
+manifest.setdefault("version", 7)
+(src / "archipelago.json").write_text(json.dumps(manifest, indent=4) + "\n")
+with zipfile.ZipFile("/tmp/empty.apworld", "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    for path in src.rglob("*"):
+        if path.is_file():
+            zf.write(path, arcname=str(Path("empty") / path.relative_to(src)))
+print("wrote /tmp/empty.apworld")
+PY
+      sudo mv /tmp/empty.apworld /ap/empty.apworld
+    fi
+  fi
 fi
-mkdir -p worlds
-cp -f /ap/empty.apworld worlds/empty.apworld
+
+# Do not also place empty.apworld under worlds/ when the directory world is present;
+# AP would try (and may warn on) the zip after the dir already registered Empty.
+rm -f worlds/empty.apworld
 
 # Place the world under test.
 bash "$INDEX_ROOT/scripts/ci/download_apworld.sh" "$INDEX_ROOT" "$APWORLD_NAME" /tmp/apworld-download
