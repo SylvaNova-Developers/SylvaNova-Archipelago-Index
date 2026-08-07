@@ -4,8 +4,9 @@ name: Sync upstream
 # Direct pushes to main are blocked by required status checks (validate,
 # fuzz-ok), so sync opens bot/sync-upstream, waits for PR CI, then merges.
 #
-# Required secret:
-#   BOT_PAT — PAT with contents:write + pull-requests:write on this repo.
+# Secrets:
+#   BOT_PAT — used for git push (so PR synchronize events trigger workflows).
+#             Does not need pull-requests:write; PR create/merge use GITHUB_TOKEN.
 
 on:
   schedule:
@@ -43,7 +44,10 @@ jobs:
 
       - name: Open sync PR and merge
         env:
-          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          # PR API via GITHUB_TOKEN (workflow permissions). BOT_PAT often lacks
+          # pull_requests:write on fine-grained tokens.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BOT_PAT: ${{ secrets.BOT_PAT }}
         run: |
           set -euo pipefail
 
@@ -70,9 +74,11 @@ jobs:
             fi
           fi
 
+          # Push with checkout remote (BOT_PAT) so later synchronize events run CI.
           git push -u origin "HEAD:refs/heads/${BRANCH}" --force
 
           EXISTING=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          CREATED=false
           if [ -n "$EXISTING" ]; then
             PR="$EXISTING"
             echo "Reusing open sync PR #$PR"
@@ -83,10 +89,17 @@ jobs:
               --body "$BODY"
             PR=$(gh pr list --base main --head "$BRANCH" --state open --json number --jq '.[0].number')
             echo "Opened sync PR #$PR"
+            CREATED=true
+          fi
+
+          # PRs opened with GITHUB_TOKEN do not trigger pull_request workflows.
+          # Nudge with an empty commit pushed via BOT_PAT so PR CI runs.
+          if [ "$CREATED" = "true" ] && [ -n "${BOT_PAT:-}" ]; then
+            git commit --allow-empty -m "ci: trigger PR checks for upstream sync"
+            git push origin "HEAD:refs/heads/${BRANCH}"
           fi
 
           # allow_auto_merge is often off. Wait for required checks, then merge.
-          # Prefer a merge commit so upstream history is preserved when possible.
           echo "Waiting for required checks on PR #$PR, then merging..."
           for _ in $(seq 1 120); do
             STATE=$(gh pr view "$PR" --json state --jq .state)
@@ -127,7 +140,7 @@ jobs:
       - name: Open issue on sync failure
         if: failure()
         env:
-          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set +e
           title="Upstream sync failed ($(date -u +%Y-%m-%d))"
@@ -140,6 +153,6 @@ jobs:
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body" || echo "Could not comment on issue #$existing"
           else
-            gh issue create --title "$title" --body "$body" || echo "Could not create issue (token may lack issues:write)"
+            gh issue create --title "$title" --body "$body" || echo "Could not create issue"
           fi
           exit 0
