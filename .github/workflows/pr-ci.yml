@@ -5,7 +5,8 @@ name: PR CI
 #   discover   — which index/*.toml files changed
 #   validate   — TOML + URL checks + apwm changes/download for touched worlds
 #   fuzz       — fuzzer gate suite (<2.5% failure, OptionError ignored) per world
-#   auto-merge — squash-merge when validate+fuzz are green (index/*.toml changes only)
+#   auto-merge — squash-merge when validate+fuzz-ok are green (world TOML
+#                changes, or the bot/update-index-lock lockfile PR)
 #
 # Fuzz run floors on GitHub-hosted runners (full upstream uses 5000/500 on
 # self-hosted Taskcluster). The failure-rate gate is <2.5% for this fork.
@@ -211,20 +212,25 @@ jobs:
           || github.head_ref == 'bot/update-index-lock')
     runs-on: ubuntu-latest
     steps:
-      - name: Enable auto-merge and merge
+      - name: Squash-merge PR
         env:
           GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          # Prefer GitHub auto-merge (respects branch protection). If the repo
-          # has no required checks configured yet, fall back to a direct squash
-          # merge now that validate+fuzz already succeeded in this workflow.
-          # Also merges bot/update-index-lock (lockfile-only) once required
-          # checks are green — those PRs skip the fuzz matrix.
-          if gh pr merge "$PR" --repo "${{ github.repository }}" --auto --squash; then
-            echo "Auto-merge enabled (or completed)"
-          else
-            echo "gh pr merge --auto failed; attempting direct squash merge"
-            gh pr merge "$PR" --repo "${{ github.repository }}" --squash --delete-branch
+          # Repo often has allow_auto_merge=false, so --auto fails. Required
+          # checks (validate, fuzz-ok) already succeeded in this workflow —
+          # squash-merge directly. Also covers bot/update-index-lock.
+          if gh pr merge "$PR" --repo "${{ github.repository }}" --squash --delete-branch; then
+            echo "Merged PR #$PR"
+            exit 0
           fi
+          # If the repo later enables auto-merge + still-running external checks,
+          # fall back to queueing.
+          if gh pr merge "$PR" --repo "${{ github.repository }}" --auto --squash; then
+            echo "Auto-merge queued for PR #$PR"
+            exit 0
+          fi
+          echo "Failed to merge PR #$PR" >&2
+          gh pr view "$PR" --repo "${{ github.repository }}"
+          exit 1
