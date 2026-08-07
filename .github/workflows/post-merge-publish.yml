@@ -15,6 +15,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why this manual run?"
+        required: false
+        default: manual
 
 concurrency:
   group: post-merge-publish
