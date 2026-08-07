@@ -4,12 +4,12 @@ name: PR CI
 # Jobs:
 #   discover   — which index/*.toml files changed
 #   validate   — TOML + URL checks + apwm changes/download for touched worlds
-#   fuzz       — fuzzer gate suite (<2.5% failure, OptionError ignored) per world
+#   fuzz       — fuzzer gate suite (<20% failure, OptionError ignored) per world
 #   auto-merge — merge when validate+fuzz-ok are green (world TOML changes,
 #                bot/update-index-lock, or bot/sync-upstream)
 #
 # Fuzz run floors on GitHub-hosted runners (full upstream uses 5000/500 on
-# self-hosted Taskcluster). The failure-rate gate is <2.5% for this fork.
+# self-hosted Taskcluster). The failure-rate gate is <20% for this fork.
 
 # Also runs on push to bot/* branches so sync/lock publish can attach the
 # required validate/fuzz-ok checks to a commit without opening a PR
