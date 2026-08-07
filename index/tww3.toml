@@ -1,0 +1,6 @@
+name = "Total War Warhammer 3"
+home = "https://github.com/SinthorasRage/Archipelago_TWW3"
+default_url = "https://github.com/SinthorasRage/Archipelago_TWW3/releases/download/Beta_{{version}}_new_options_and_fixes/tww3.apworld"
+
+[versions]
+"0.1.5" = {}
