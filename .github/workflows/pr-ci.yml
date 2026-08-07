@@ -5,8 +5,8 @@ name: PR CI
 #   discover   — which index/*.toml files changed
 #   validate   — TOML + URL checks + apwm changes/download for touched worlds
 #   fuzz       — fuzzer gate suite (<2.5% failure, OptionError ignored) per world
-#   auto-merge — squash-merge when validate+fuzz-ok are green (world TOML
-#                changes, or the bot/update-index-lock lockfile PR)
+#   auto-merge — merge when validate+fuzz-ok are green (world TOML changes,
+#                bot/update-index-lock, or bot/sync-upstream)
 #
 # Fuzz run floors on GitHub-hosted runners (full upstream uses 5000/500 on
 # self-hosted Taskcluster). The failure-rate gate is <2.5% for this fork.
@@ -127,7 +127,8 @@ jobs:
   fuzz:
     name: fuzz
     needs: [discover, validate]
-    if: needs.discover.outputs.has_worlds == 'true'
+    # Skip fuzz for upstream sync PRs (trust ionium CI; full matrix is too heavy).
+    if: needs.discover.outputs.has_worlds == 'true' && github.head_ref != 'bot/sync-upstream'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -189,6 +190,11 @@ jobs:
           set -euo pipefail
           has="${{ needs.discover.outputs.has_worlds }}"
           result="${{ needs.fuzz.result }}"
+          head_ref="${{ github.head_ref }}"
+          if [ "$head_ref" = "bot/sync-upstream" ]; then
+            echo "Upstream sync PR; fuzz gate skipped (validate still required)"
+            exit 0
+          fi
           if [ "$has" = "true" ]; then
             if [ "$result" != "success" ]; then
               echo "fuzz matrix failed (result=$result)" >&2
@@ -209,24 +215,29 @@ jobs:
       && needs.fuzz-ok.result == 'success'
       && github.event.pull_request.draft == false
       && (needs.discover.outputs.has_worlds == 'true'
-          || github.head_ref == 'bot/update-index-lock')
+          || github.head_ref == 'bot/update-index-lock'
+          || github.head_ref == 'bot/sync-upstream')
     runs-on: ubuntu-latest
     steps:
-      - name: Squash-merge PR
+      - name: Merge PR
         env:
           GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          # Repo often has allow_auto_merge=false, so --auto fails. Required
-          # checks (validate, fuzz-ok) already succeeded in this workflow —
-          # squash-merge directly. Also covers bot/update-index-lock.
+          # Repo often has allow_auto_merge=false, so merge directly once
+          # required checks succeeded in this workflow.
+          if [ "$HEAD_REF" = "bot/sync-upstream" ]; then
+            if gh pr merge "$PR" --repo "${{ github.repository }}" --merge --delete-branch; then
+              echo "Merge-committed PR #$PR"
+              exit 0
+            fi
+          fi
           if gh pr merge "$PR" --repo "${{ github.repository }}" --squash --delete-branch; then
-            echo "Merged PR #$PR"
+            echo "Squash-merged PR #$PR"
             exit 0
           fi
-          # If the repo later enables auto-merge + still-running external checks,
-          # fall back to queueing.
           if gh pr merge "$PR" --repo "${{ github.repository }}" --auto --squash; then
             echo "Auto-merge queued for PR #$PR"
             exit 0
