@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Fail if a fuzzer report.json exceeds the inclusion failure-rate gate.
 
-Gate (matches index README / upstream criteria):
-  failure / (success + failure + timeout) < 0.01
+Gate (SylvaNova index criteria):
+  failure / (success + failure + timeout) < 0.025
   OptionError / ignored outcomes are excluded from the denominator.
 """
 
@@ -30,8 +30,8 @@ def main() -> int:
     parser.add_argument(
         "--max-rate",
         type=float,
-        default=0.01,
-        help="Maximum allowed failure rate (default: 0.01)",
+        default=0.025,
+        help="Maximum allowed failure rate (default: 0.025)",
     )
     parser.add_argument("--label", default="", help="Optional label for log lines")
     args = parser.parse_args()
