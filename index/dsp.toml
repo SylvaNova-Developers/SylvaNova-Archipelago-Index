@@ -1,0 +1,6 @@
+name = "Dyson Sphere Program"
+home = "https://github.com/BloodStainedCrow/Archipelago-DSP"
+default_url = "https://github.com/BloodStainedCrow/Archipelago-DSP/releases/download/v{{version}}rc4/dsp.apworld"
+
+[versions]
+"0.2.0" = {}
