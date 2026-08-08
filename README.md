@@ -114,13 +114,13 @@ When fuzz fails above the gate but you still want the world indexed, a **collabo
 
 Workflow: `.github/workflows/force-merge.yml`
 
-That path still requires `validate` green on the PR head, posts a successful `fuzz-ok` override check, then squash-merges. Use it for high fuzz failure rates you are willing to accept; it does not skip TOML/URL validation.
+That path still requires `validate` green on the PR head, best-effort posts a successful `fuzz-ok` override check (via the Actions token — PATs cannot create check runs), then squash-merges with `--admin` when `BOT_PAT` allows it. Use it for high fuzz failure rates you are willing to accept; it does not skip TOML/URL validation.
 
 Recommended repo settings:
 
 - Enable **Allow auto-merge**
 - Branch protection on `main` requiring checks `validate` and `fuzz-ok`
-- Ensure `BOT_PAT` (if used) can merge with required-check bypass, or allow the override `fuzz-ok` check to satisfy protection
+- Give `BOT_PAT` permission to admin-merge (bypass required status checks), since force-merge relies on that when `fuzz-ok` has already failed
 
 ## Post-merge publish + lobby refresh
 

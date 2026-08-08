@@ -6,7 +6,8 @@ name: Force merge
 #   - PR label: `force-merge` or `bypass-fuzz`
 #
 # Still requires the latest `validate` check on the PR head to be success.
-# Posts a successful `fuzz-ok` check noting the override, then squash-merges.
+# Best-effort posts a successful `fuzz-ok` override check (Actions token;
+# PATs cannot create check runs), then squash-merges — preferring --admin.
 
 on:
   issue_comment:
@@ -142,15 +143,15 @@ jobs:
       - name: Report fuzz-ok override check
         if: steps.prep.outputs.pr != ''
         env:
-          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          # Check Runs API requires a GitHub App token. Classic/fine-grained
+          # PATs (BOT_PAT) return HTTP 403 — use the Actions GITHUB_TOKEN.
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ steps.prep.outputs.sha }}
           REASON: ${{ steps.prep.outputs.reason }}
           ACTOR: ${{ github.actor }}
         run: |
-          set -euo pipefail
-          # Mark required fuzz-ok check green so branch protection can pass
-          # without re-running the expensive fuzz matrix.
+          set -uo pipefail
           body=$(jq -n \
             --arg sha "$SHA" \
             --arg reason "$REASON" \
@@ -165,13 +166,17 @@ jobs:
                 summary: ("Collaborator force-merge: fuzz gate bypassed.\n\n" + $reason + "\nRequested by @" + $actor)
               }
             }')
-          gh api "repos/${REPO}/check-runs" -X POST --input - <<<"$body"
-          echo "Posted successful fuzz-ok override check on $SHA"
+          if gh api "repos/${REPO}/check-runs" -X POST --input - <<<"$body"; then
+            echo "Posted successful fuzz-ok override check on $SHA"
+          else
+            echo "Warning: could not post fuzz-ok check run; continuing with merge" >&2
+          fi
 
       - name: Squash-merge PR
         if: steps.prep.outputs.pr != ''
         env:
           GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          ACTIONS_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ steps.prep.outputs.pr }}
           REASON: ${{ steps.prep.outputs.reason }}
@@ -179,6 +184,31 @@ jobs:
           SHA: ${{ steps.prep.outputs.sha }}
         run: |
           set -euo pipefail
+
+          post_fuzz_ok_override() {
+            local sha="$1"
+            local body
+            body=$(jq -n \
+              --arg sha "$sha" \
+              --arg reason "$REASON" \
+              --arg actor "$ACTOR" \
+              '{
+                name: "fuzz-ok",
+                head_sha: $sha,
+                status: "completed",
+                conclusion: "success",
+                output: {
+                  title: "Force-merge override (fuzz bypassed)",
+                  summary: ("Collaborator force-merge: fuzz gate bypassed.\n\n" + $reason + "\nRequested by @" + $actor)
+                }
+              }')
+            # PATs cannot create check runs; always use the Actions token here.
+            if GH_TOKEN="$ACTIONS_TOKEN" gh api "repos/${REPO}/check-runs" -X POST --input - <<<"$body"; then
+              echo "Posted successful fuzz-ok override check on $sha"
+            else
+              echo "Warning: could not post fuzz-ok check run on $sha; continuing" >&2
+            fi
+          }
 
           # Re-read head SHA: admin merge bypasses branch protection on the
           # current tip, so validate must be green on whatever we actually merge.
@@ -198,27 +228,12 @@ jobs:
                 "❌ Force-merge blocked: head advanced to \`${current_sha:0:7}\` but \`validate\` is not green (got \`$validate\`)."
               exit 1
             fi
-            body=$(jq -n \
-              --arg sha "$current_sha" \
-              --arg reason "$REASON" \
-              --arg actor "$ACTOR" \
-              '{
-                name: "fuzz-ok",
-                head_sha: $sha,
-                status: "completed",
-                conclusion: "success",
-                output: {
-                  title: "Force-merge override (fuzz bypassed)",
-                  summary: ("Collaborator force-merge: fuzz gate bypassed.\n\n" + $reason + "\nRequested by @" + $actor)
-                }
-              }')
-            gh api "repos/${REPO}/check-runs" -X POST --input - <<<"$body"
+            post_fuzz_ok_override "$current_sha"
             SHA="$current_sha"
           fi
 
-          # Prefer admin bypass when the token allows it (required checks /
-          # conversations). Fall back to a normal squash merge once fuzz-ok
-          # override check is posted.
+          # Prefer admin bypass (BOT_PAT with admin/maintain) so a failed
+          # fuzz-ok required check cannot block the merge.
           merged=false
           auto_queued=false
           if gh pr merge "$PR" --repo "$REPO" --squash --delete-branch --admin; then
@@ -236,7 +251,7 @@ jobs:
             echo "Failed to merge PR #$PR" >&2
             gh pr view "$PR" --repo "$REPO"
             gh pr comment "$PR" --repo "$REPO" --body \
-              "❌ Force-merge requested ($REASON) but merge failed. Check branch protection / reviews / conflicts on \`${SHA:0:7}\`."
+              "❌ Force-merge requested ($REASON) but merge failed on \`${SHA:0:7}\`. Ensure \`BOT_PAT\` can admin-merge (bypass required checks), or that branch protection accepts the override \`fuzz-ok\` check."
             exit 1
           fi
 
