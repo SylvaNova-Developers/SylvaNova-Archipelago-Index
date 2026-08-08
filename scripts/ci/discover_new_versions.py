@@ -230,7 +230,7 @@ def collect_candidates(
             parsed_version = version_key(version)
         except InvalidVersion:
             continue
-        if latest is not None and parsed_version <= latest:
+        if latest is None or parsed_version <= latest:
             continue
 
         asset_url = find_asset_url(release, parsed_url.asset)
