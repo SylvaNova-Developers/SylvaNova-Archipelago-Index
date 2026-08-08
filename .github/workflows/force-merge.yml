@@ -180,10 +180,47 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Re-read head SHA: admin merge bypasses branch protection on the
+          # current tip, so validate must be green on whatever we actually merge.
+          current_sha=$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)
+          if [ "$current_sha" != "$SHA" ]; then
+            echo "Head advanced from ${SHA:0:7} to ${current_sha:0:7}; re-checking validate"
+            runs=$(gh api "repos/${REPO}/commits/${current_sha}/check-runs" --paginate)
+            validate=$(echo "$runs" | jq -r '
+              [.check_runs[] | select(.name == "validate")]
+              | sort_by(.completed_at // .started_at)
+              | last
+              | "\(.status // "missing"):\(.conclusion // "")"
+            ')
+            if [ "$validate" != "completed:success" ]; then
+              echo "Refusing force-merge: validate is not green on $current_sha ($validate)" >&2
+              gh pr comment "$PR" --repo "$REPO" --body \
+                "❌ Force-merge blocked: head advanced to \`${current_sha:0:7}\` but \`validate\` is not green (got \`$validate\`)."
+              exit 1
+            fi
+            body=$(jq -n \
+              --arg sha "$current_sha" \
+              --arg reason "$REASON" \
+              --arg actor "$ACTOR" \
+              '{
+                name: "fuzz-ok",
+                head_sha: $sha,
+                status: "completed",
+                conclusion: "success",
+                output: {
+                  title: "Force-merge override (fuzz bypassed)",
+                  summary: ("Collaborator force-merge: fuzz gate bypassed.\n\n" + $reason + "\nRequested by @" + $actor)
+                }
+              }')
+            gh api "repos/${REPO}/check-runs" -X POST --input - <<<"$body"
+            SHA="$current_sha"
+          fi
+
           # Prefer admin bypass when the token allows it (required checks /
           # conversations). Fall back to a normal squash merge once fuzz-ok
           # override check is posted.
           merged=false
+          auto_queued=false
           if gh pr merge "$PR" --repo "$REPO" --squash --delete-branch --admin; then
             merged=true
             echo "Admin squash-merged PR #$PR"
@@ -191,11 +228,11 @@ jobs:
             merged=true
             echo "Squash-merged PR #$PR"
           elif gh pr merge "$PR" --repo "$REPO" --auto --squash; then
-            merged=true
+            auto_queued=true
             echo "Auto-merge queued for PR #$PR"
           fi
 
-          if [ "$merged" != true ]; then
+          if [ "$merged" != true ] && [ "$auto_queued" != true ]; then
             echo "Failed to merge PR #$PR" >&2
             gh pr view "$PR" --repo "$REPO"
             gh pr comment "$PR" --repo "$REPO" --body \
@@ -203,5 +240,10 @@ jobs:
             exit 1
           fi
 
-          gh pr comment "$PR" --repo "$REPO" --body \
-            "✅ Force-merged despite fuzz failure ($REASON). \`validate\` was green on \`${SHA:0:7}\`; fuzz gate was intentionally bypassed by @$ACTOR."
+          if [ "$merged" = true ]; then
+            gh pr comment "$PR" --repo "$REPO" --body \
+              "✅ Force-merged despite fuzz failure ($REASON). \`validate\` was green on \`${SHA:0:7}\`; fuzz gate was intentionally bypassed by @$ACTOR."
+          else
+            gh pr comment "$PR" --repo "$REPO" --body \
+              "⏳ Auto-merge queued despite fuzz failure ($REASON). \`validate\` was green on \`${SHA:0:7}\`; fuzz gate was intentionally bypassed by @$ACTOR. Merge will complete when remaining requirements are satisfied."
+          fi
