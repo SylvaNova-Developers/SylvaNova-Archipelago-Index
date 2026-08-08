@@ -1,0 +1,6 @@
+name = "Dwarf Fortress"
+home = "https://github.com/EthanTheBrave/Dwarfipelago"
+default_url = "https://github.com/EthanTheBrave/Dwarfipelago/releases/download/{{version}}/dwarf_fortress.apworld"
+
+[versions]
+"1.3.2" = {}
