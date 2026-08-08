@@ -11,8 +11,8 @@ name: PR CI
 # Fuzz run floors on GitHub-hosted runners (full upstream uses 5000/500 on
 # self-hosted Taskcluster). The failure-rate gate is <20% for this fork.
 
-# Also runs on push to bot/* branches so sync/lock publish can attach the
-# required validate/fuzz-ok checks to a commit without opening a PR
+# Also runs on push to bot/* branches so sync/lock/world-version publish can
+# attach the required validate/fuzz-ok checks to a commit without opening a PR
 # (GITHUB_TOKEN cannot create PRs unless the repo Actions setting allows it).
 
 on:
@@ -20,7 +20,7 @@ on:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
   push:
-    branches: [bot/sync-upstream, bot/update-index-lock]
+    branches: [bot/sync-upstream, bot/update-index-lock, bot/update-world-versions]
 
 concurrency:
   group: pr-ci-${{ github.event.pull_request.number || github.ref }}

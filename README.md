@@ -76,6 +76,23 @@ Workflow: `.github/workflows/sync-upstream.yml`
 
 Secret: `BOT_PAT` (contents:write; recommended so pushes work with branch protection)
 
+## Diverged world version updates
+
+Workflow: `.github/workflows/update-diverged-worlds.yml`
+
+Upstream sync covers shared worlds. Fork-specific entries need their own release polling:
+
+- Runs every 6 hours (and on `workflow_dispatch`)
+- Auto-detects eligible `index/*.toml` files (no manual watch list):
+  - GitHub `default_url` with `{{version}}`
+  - Not `supported = true` locally
+  - Fork-only (missing upstream) **or** demoted (upstream still `supported = true`)
+- Polls GitHub Releases, appends semver versions newer than the latest indexed one
+- Pushes `bot/update-world-versions`, waits for `validate` + `fuzz-ok`, then fast-forwards `main`
+- Post-merge publish then refreshes `index.lock` as usual
+
+Today that covers `celeste_open_world` (demoted) and `tww3` (fork-only). New Discord/PR worlds that match the rules are enrolled on the next run automatically.
+
 ## PR acceptance (automatic CI)
 
 Workflow: `.github/workflows/pr-ci.yml`
