@@ -48,7 +48,8 @@ class IndexPullRequestClient:
             f"Automated apworld request from Discord user `{requested_by}`.\n\n"
             f"- File: `{path}`\n"
             f"- Opened by SylvaNova-apworld-bot scaffold\n\n"
-            "Index `PR CI` will validate, fuzz, and auto-merge when green."
+            "Index `PR CI` will validate, fuzz, and auto-merge when green. "
+            "Collaborators can comment `/force-merge` (or `r+`) to land despite a high fuzz failure rate."
         )
         pr = self._repo.create_pull(
             title=title,

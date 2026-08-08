@@ -31,7 +31,8 @@ Slash command `/request-apworld`:
 | `display_name` | no | Pretty name when `name` is ugly |
 
 The bot opens a PR on the index repo that adds the TOML. Index `PR CI` then
-validates, fuzzes, and auto-merges when green.
+validates, fuzzes, and auto-merges when green. Collaborators can comment
+`/force-merge` (or `r+`) on the PR to land despite a high fuzz failure rate.
 
 ## Setup
 

@@ -105,10 +105,22 @@ On every non-draft PR to `main`:
 
 GitHub-hosted runners use a reduced run floor (`FUZZ_RUNS_FULL=1000`, `FUZZ_RUNS_CHECK=500`) versus upstream Taskcluster (`5000` / `500`).
 
+### Force-merge (collaborator fuzz bypass)
+
+When fuzz fails above the gate but you still want the world indexed, a **collaborator / member / owner** can override:
+
+- Comment `/force-merge`, `r+`, or `r++` on the PR (first line exact), or
+- Apply label `force-merge` or `bypass-fuzz`
+
+Workflow: `.github/workflows/force-merge.yml`
+
+That path still requires `validate` green on the PR head, posts a successful `fuzz-ok` override check, then squash-merges. Use it for high fuzz failure rates you are willing to accept; it does not skip TOML/URL validation.
+
 Recommended repo settings:
 
 - Enable **Allow auto-merge**
 - Branch protection on `main` requiring checks `validate` and `fuzz-ok`
+- Ensure `BOT_PAT` (if used) can merge with required-check bypass, or allow the override `fuzz-ok` check to satisfy protection
 
 ## Post-merge publish + lobby refresh
 

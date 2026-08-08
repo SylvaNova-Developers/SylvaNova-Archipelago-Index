@@ -83,7 +83,8 @@ def build_bot(settings: Settings) -> ApworldBot:
 
         await interaction.followup.send(
             f"Opened PR #{pr.number}: {pr.url}\n"
-            "Index CI will validate, fuzz, and auto-merge when green.",
+            "Index CI will validate, fuzz, and auto-merge when green. "
+            "Collaborators can `/force-merge` on the PR if fuzz fails high.",
             ephemeral=True,
         )
 
