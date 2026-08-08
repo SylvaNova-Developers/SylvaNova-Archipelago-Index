@@ -1,0 +1,121 @@
+name: Update diverged worlds
+
+# Auto-detect fork-only / demoted-from-supported worlds with a GitHub
+# default_url, poll their Releases for newer semver versions, and land TOML
+# updates on main through the same bot-branch + required-checks path used by
+# sync-upstream / post-merge-publish.
+#
+# Secrets:
+#   BOT_PAT — contents:write so the job can push bot/update-world-versions and main.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: update-diverged-worlds
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  checks: read
+  actions: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "sylvanova-index-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch remotes
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/ionium-ap/Archipelago-index.git
+          git fetch upstream main
+          git fetch origin main
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: pip install packaging
+
+      - name: Discover and append new versions
+        id: discover
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # workflow_dispatch / re-runs pin github.sha; always work from live tip.
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          chmod +x scripts/ci/discover_new_versions.py
+          output=$(python3 scripts/ci/discover_new_versions.py --upstream-ref upstream/main | tee /tmp/discover.out)
+          if grep -q '^changed=true$' /tmp/discover.out; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No newer versions for eligible fork-diverged worlds"
+          fi
+
+      - name: Publish version bumps via bot branch + required checks
+        if: steps.discover.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          BRANCH="bot/update-world-versions"
+          git checkout -B "$BRANCH"
+          git add index/*.toml
+          git commit -m "Update fork-diverged world versions"
+
+          # Push workflows are read from this commit — pin gate logic from main.
+          git checkout origin/main -- .github/workflows/
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: pin Actions workflows from main for world-version CI"
+          fi
+
+          git push -u origin "HEAD:refs/heads/${BRANCH}" --force
+          SHA=$(git rev-parse HEAD)
+          echo "Pushed $BRANCH @ $SHA — waiting for validate + fuzz-ok"
+
+          for _ in $(seq 1 120); do
+            RUNS=$(gh api "repos/${REPO}/commits/${SHA}/check-runs" --paginate)
+            VALIDATE=$(echo "$RUNS" | jq -r '[.check_runs[] | select(.name=="validate")] | sort_by(.completed_at // .started_at) | last | "\(.status // "missing"):\(.conclusion // "")"')
+            FUZZOK=$(echo "$RUNS" | jq -r '[.check_runs[] | select(.name=="fuzz-ok")] | sort_by(.completed_at // .started_at) | last | "\(.status // "missing"):\(.conclusion // "")"')
+            echo "validate=$VALIDATE fuzz-ok=$FUZZOK"
+
+            if [ "$VALIDATE" = "completed:success" ] && [ "$FUZZOK" = "completed:success" ]; then
+              echo "Required checks green — fast-forwarding main to $SHA"
+              git push origin "$SHA:refs/heads/main"
+              echo "main updated with fork-diverged world versions"
+              exit 0
+            fi
+            if echo "$VALIDATE$FUZZOK" | grep -qi 'completed:failure\|completed:cancelled\|completed:timed_out'; then
+              echo "Required checks failed (validate=$VALIDATE fuzz-ok=$FUZZOK)" >&2
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "Timed out waiting for checks on $SHA" >&2
+          exit 1
+
+      - name: Annotate update failure
+        if: failure()
+        run: |
+          echo "::error::Diverged-world version update failed. Inspect bot/update-world-versions CI, then re-run Update diverged worlds."
