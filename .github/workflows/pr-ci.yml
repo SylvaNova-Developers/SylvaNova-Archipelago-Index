@@ -199,6 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Require fuzz success when worlds changed
+        id: gate
         run: |
           set -euo pipefail
           has="${{ needs.discover.outputs.has_worlds }}"
@@ -208,10 +209,33 @@ jobs:
           # skipped the same as success so required check fuzz-ok stays green.
           if [ "$result" = "success" ] || [ "$result" = "skipped" ]; then
             echo "fuzz gate ok (has_worlds=$has result=$result)"
+            echo "failed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "failed=true" >> "$GITHUB_OUTPUT"
           echo "fuzz matrix failed (result=$result)" >&2
           exit 1
+
+      - name: Hint force-merge on fuzz failure
+        if: failure() && steps.gate.outputs.failed == 'true' && github.event.pull_request.number
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          body=$(cat <<'EOF'
+          Fuzz gate failed (`fuzz-ok`). Collaborators can still land this PR if the high failure rate is acceptable:
+
+          ```
+          /force-merge
+          ```
+
+          (or comment `r+` / `r++`, or apply label `force-merge` / `bypass-fuzz`). `validate` must stay green; see `.github/workflows/force-merge.yml`.
+          EOF
+          )
+          # Strip leading indentation from the heredoc body.
+          body=$(printf '%s\n' "$body" | sed 's/^          //')
+          gh pr comment "$PR" --repo "${{ github.repository }}" --body "$body"
 
   auto-merge:
     name: auto-merge

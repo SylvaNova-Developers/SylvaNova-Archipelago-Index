@@ -1,0 +1,207 @@
+name: Force merge
+
+# Collaborator override when fuzz-ok fails but validate is green.
+# Triggers:
+#   - PR comment: `/force-merge` or `r+` (exact first line)
+#   - PR label: `force-merge` or `bypass-fuzz`
+#
+# Still requires the latest `validate` check on the PR head to be success.
+# Posts a successful `fuzz-ok` check noting the override, then squash-merges.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: write
+  statuses: write
+
+jobs:
+  force-merge:
+    name: force-merge
+    if: |
+      (
+        github.event_name == 'issue_comment'
+        && github.event.issue.pull_request != null
+        && (
+          startsWith(github.event.comment.body, '/force-merge')
+          || startsWith(github.event.comment.body, 'r+')
+        )
+        && (
+          github.event.comment.author_association == 'OWNER'
+          || github.event.comment.author_association == 'MEMBER'
+          || github.event.comment.author_association == 'COLLABORATOR'
+        )
+      )
+      || (
+        github.event_name == 'pull_request'
+        && (
+          github.event.label.name == 'force-merge'
+          || github.event.label.name == 'bypass-fuzz'
+        )
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR and authorize
+        id: prep
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body || '' }}
+          LABEL_NAME: ${{ github.event.label.name || '' }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            # First line only; allow trailing explanation on later lines.
+            cmd=$(printf '%s\n' "$COMMENT_BODY" | head -n1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+            case "$cmd" in
+              /force-merge|r+|r++)
+                reason="comment \`$cmd\` by @$ACTOR"
+                ;;
+              *)
+                echo "Comment is not an exact force-merge command: [$cmd]"
+                exit 0
+                ;;
+            esac
+            pr="$ISSUE_NUMBER"
+          else
+            # Label path: confirm actor has write+ (label events lack author_association).
+            perm=$(gh api "repos/${REPO}/collaborators/${ACTOR}/permission" --jq .permission)
+            case "$perm" in
+              admin|maintain|write)
+                ;;
+              *)
+                echo "Actor @$ACTOR lacks write permission (got $perm); refusing force-merge" >&2
+                exit 1
+                ;;
+            esac
+            reason="label \`$LABEL_NAME\` by @$ACTOR"
+            pr="$ISSUE_NUMBER"
+          fi
+
+          meta=$(gh pr view "$pr" --repo "$REPO" --json number,url,title,state,isDraft,headRefOid,baseRefName,mergeable)
+          state=$(echo "$meta" | jq -r .state)
+          draft=$(echo "$meta" | jq -r .isDraft)
+          base=$(echo "$meta" | jq -r .baseRefName)
+          sha=$(echo "$meta" | jq -r .headRefOid)
+          url=$(echo "$meta" | jq -r .url)
+          title=$(echo "$meta" | jq -r .title)
+
+          if [ "$state" != "OPEN" ]; then
+            echo "PR #$pr is $state; nothing to merge"
+            exit 0
+          fi
+          if [ "$draft" = "true" ]; then
+            echo "PR #$pr is draft; refusing force-merge" >&2
+            exit 1
+          fi
+          if [ "$base" != "main" ]; then
+            echo "PR #$pr targets $base (expected main); refusing" >&2
+            exit 1
+          fi
+
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "Force-merge candidate: #$pr ($title) @ $sha — $reason"
+
+      - name: Require validate green
+        if: steps.prep.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.prep.outputs.sha }}
+          PR: ${{ steps.prep.outputs.pr }}
+        run: |
+          set -euo pipefail
+          runs=$(gh api "repos/${REPO}/commits/${SHA}/check-runs" --paginate)
+          validate=$(echo "$runs" | jq -r '
+            [.check_runs[] | select(.name == "validate")]
+            | sort_by(.completed_at // .started_at)
+            | last
+            | "\(.status // "missing"):\(.conclusion // "")"
+          ')
+          echo "validate=$validate"
+          if [ "$validate" != "completed:success" ]; then
+            echo "Refusing force-merge: validate is not green on $SHA ($validate)" >&2
+            gh pr comment "$PR" --repo "$REPO" --body \
+              "❌ Force-merge blocked: \`validate\` must be green on \`${SHA:0:7}\` (got \`$validate\`)."
+            exit 1
+          fi
+
+      - name: Report fuzz-ok override check
+        if: steps.prep.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.prep.outputs.sha }}
+          REASON: ${{ steps.prep.outputs.reason }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          # Mark required fuzz-ok check green so branch protection can pass
+          # without re-running the expensive fuzz matrix.
+          body=$(jq -n \
+            --arg sha "$SHA" \
+            --arg reason "$REASON" \
+            --arg actor "$ACTOR" \
+            '{
+              name: "fuzz-ok",
+              head_sha: $sha,
+              status: "completed",
+              conclusion: "success",
+              output: {
+                title: "Force-merge override (fuzz bypassed)",
+                summary: ("Collaborator force-merge: fuzz gate bypassed.\n\n" + $reason + "\nRequested by @" + $actor)
+              }
+            }')
+          gh api "repos/${REPO}/check-runs" -X POST --input - <<<"$body"
+          echo "Posted successful fuzz-ok override check on $SHA"
+
+      - name: Squash-merge PR
+        if: steps.prep.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.prep.outputs.pr }}
+          REASON: ${{ steps.prep.outputs.reason }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ steps.prep.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          # Prefer admin bypass when the token allows it (required checks /
+          # conversations). Fall back to a normal squash merge once fuzz-ok
+          # override check is posted.
+          merged=false
+          if gh pr merge "$PR" --repo "$REPO" --squash --delete-branch --admin; then
+            merged=true
+            echo "Admin squash-merged PR #$PR"
+          elif gh pr merge "$PR" --repo "$REPO" --squash --delete-branch; then
+            merged=true
+            echo "Squash-merged PR #$PR"
+          elif gh pr merge "$PR" --repo "$REPO" --auto --squash; then
+            merged=true
+            echo "Auto-merge queued for PR #$PR"
+          fi
+
+          if [ "$merged" != true ]; then
+            echo "Failed to merge PR #$PR" >&2
+            gh pr view "$PR" --repo "$REPO"
+            gh pr comment "$PR" --repo "$REPO" --body \
+              "❌ Force-merge requested ($REASON) but merge failed. Check branch protection / reviews / conflicts on \`${SHA:0:7}\`."
+            exit 1
+          fi
+
+          gh pr comment "$PR" --repo "$REPO" --body \
+            "✅ Force-merged despite fuzz failure ($REASON). \`validate\` was green on \`${SHA:0:7}\`; fuzz gate was intentionally bypassed by @$ACTOR."
