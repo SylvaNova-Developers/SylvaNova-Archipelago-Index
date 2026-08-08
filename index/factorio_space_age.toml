@@ -1,0 +1,6 @@
+name = "Factorio: Space Age"
+home = "https://github.com/thejoshwolfe/Archipelago"
+default_url = "https://github.com/thejoshwolfe/Archipelago/releases/download/space-age-v{{version}}/factorio_space_age.apworld"
+
+[versions]
+"2.2.3" = {}
