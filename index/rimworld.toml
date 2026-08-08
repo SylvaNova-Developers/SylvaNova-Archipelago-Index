@@ -1,0 +1,6 @@
+name = "Rimworld"
+home = "https://github.com/PhantomOfAres/ArchipelagoRimworld"
+default_url = "https://github.com/PhantomOfAres/ArchipelagoRimworld/releases/download/v{{version}}/rimworld.apworld"
+
+[versions]
+"0.5.2-bugfix" = {}
