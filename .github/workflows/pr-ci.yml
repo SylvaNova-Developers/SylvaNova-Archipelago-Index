@@ -245,13 +245,15 @@ jobs:
     needs: [discover, validate, fuzz-ok]
     if: |
       always()
+      && github.event_name == 'pull_request'
       && needs.discover.result == 'success'
       && needs.validate.result == 'success'
       && needs.fuzz-ok.result == 'success'
       && github.event.pull_request.draft == false
       && (needs.discover.outputs.has_worlds == 'true'
           || github.head_ref == 'bot/update-index-lock'
-          || github.head_ref == 'bot/sync-upstream')
+          || github.head_ref == 'bot/sync-upstream'
+          || github.head_ref == 'bot/update-world-versions')
     runs-on: ubuntu-latest
     steps:
       - name: Merge PR
@@ -259,24 +261,30 @@ jobs:
           GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          if [ -z "${PR:-}" ]; then
+            echo "No pull_request number (not a PR event); skipping auto-merge"
+            exit 0
+          fi
           # Repo often has allow_auto_merge=false, so merge directly once
-          # required checks succeeded in this workflow.
+          # required checks succeeded in this workflow. Always pass --repo so
+          # gh does not need a local .git checkout.
           if [ "$HEAD_REF" = "bot/sync-upstream" ]; then
-            if gh pr merge "$PR" --repo "${{ github.repository }}" --merge --delete-branch; then
+            if gh pr merge "$PR" --repo "$REPO" --merge --delete-branch; then
               echo "Merge-committed PR #$PR"
               exit 0
             fi
           fi
-          if gh pr merge "$PR" --repo "${{ github.repository }}" --squash --delete-branch; then
+          if gh pr merge "$PR" --repo "$REPO" --squash --delete-branch; then
             echo "Squash-merged PR #$PR"
             exit 0
           fi
-          if gh pr merge "$PR" --repo "${{ github.repository }}" --auto --squash; then
+          if gh pr merge "$PR" --repo "$REPO" --auto --squash; then
             echo "Auto-merge queued for PR #$PR"
             exit 0
           fi
           echo "Failed to merge PR #$PR" >&2
-          gh pr view "$PR" --repo "${{ github.repository }}"
+          gh pr view "$PR" --repo "$REPO"
           exit 1
