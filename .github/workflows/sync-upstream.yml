@@ -6,9 +6,11 @@ name: Sync upstream
 # GITHUB_TOKEN nor a contents-only BOT_PAT can open PRs on this repo, so we:
 #   1. Reset to origin/main tip (not a stale workflow_dispatch SHA)
 #   2. Merge upstream onto bot/sync-upstream and push (BOT_PAT)
-#   3. Pin .github/workflows from origin/main onto that branch so PR CI uses
+#   3. Quarantine unreachable version URLs on changed worlds so one dead
+#      release cannot block the whole sync
+#   4. Pin .github/workflows from origin/main onto that branch so PR CI uses
 #      current gate logic (push workflows come from the branch commit)
-#   4. Wait for validate + fuzz-ok on that commit, then FF main
+#   5. Wait for validate + fuzz-ok on that commit, then FF main
 #
 # Secrets:
 #   BOT_PAT — contents:write so the job can push bot/sync-upstream and main.
@@ -83,10 +85,24 @@ jobs:
             fi
           fi
 
-          # Push workflows are read from this commit — pin them to origin/main.
-          git checkout origin/main -- .github/workflows/
+          # One dead release URL must not freeze sync. Drop unreachable versions
+          # (or disable the world if none remain) before required checks run.
+          mapfile -t changed_worlds < <(python3 scripts/ci/changed_worlds.py \
+            --base origin/main --head HEAD || true)
+          if [ "${#changed_worlds[@]}" -gt 0 ]; then
+            echo "Quarantine scan for: ${changed_worlds[*]}"
+            python3 scripts/ci/quarantine_broken_worlds.py "${changed_worlds[@]}"
+            if ! git diff --quiet -- index/; then
+              git add index/
+              git commit -m "Quarantine unreachable index versions [upstream-sync]"
+            fi
+          fi
+
+          # Push workflows + CI scripts are read from this commit — pin from main
+          # so upstream script churn cannot remove quarantine / validate helpers.
+          git checkout origin/main -- .github/workflows/ scripts/ci/
           if ! git diff --cached --quiet; then
-            git commit -m "ci: pin Actions workflows from main for bot sync CI"
+            git commit -m "ci: pin Actions workflows and scripts/ci from main"
           fi
 
           git push -u origin "HEAD:refs/heads/${BRANCH}" --force

@@ -72,7 +72,8 @@ Workflow: `.github/workflows/sync-upstream.yml`
 
 - Runs every 15 minutes (and on `workflow_dispatch`)
 - Fast-forwards or merges `ionium-ap/Archipelago-index:main` into this repo's `main`
-- On merge conflicts, opens (or comments on) a GitHub issue
+- Before required checks: **quarantines** unreachable version URLs on changed worlds (drops the bad version; disables the world only if none remain) so one dead release cannot block sync
+- Skips the fuzz matrix on `bot/sync-upstream` (validate + `fuzz-ok` still run)
 
 Secret: `BOT_PAT` (contents:write; recommended so pushes work with branch protection)
 
@@ -89,6 +90,7 @@ Upstream sync covers shared worlds. Fork-specific entries need their own release
   - Fork-only (missing upstream) **or** demoted (upstream still `supported = true`)
 - Polls GitHub Releases, appends semver versions newer than the latest indexed one
 - Pushes `bot/update-world-versions`, waits for `validate` + `fuzz-ok`, then fast-forwards `main`
+- Skips the fuzz matrix on that bot branch (same freeze-avoidance as sync); human PRs still fuzz
 - Post-merge publish then refreshes `index.lock` as usual
 
 Today that covers `celeste_open_world` (demoted) and `tww3` (fork-only). New Discord/PR worlds that match the rules are enrolled on the next run automatically.
