@@ -137,11 +137,14 @@ jobs:
   fuzz:
     name: fuzz
     needs: [discover, validate]
-    # Skip fuzz for upstream sync (trust ionium CI; full matrix is too heavy).
+    # Skip fuzz for automation bot branches (trust quarantine + validate;
+    # full matrix on large sync/version diffs freezes the pipeline).
     if: |
       needs.discover.outputs.has_worlds == 'true'
       && github.head_ref != 'bot/sync-upstream'
       && github.ref_name != 'bot/sync-upstream'
+      && github.head_ref != 'bot/update-world-versions'
+      && github.ref_name != 'bot/update-world-versions'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:

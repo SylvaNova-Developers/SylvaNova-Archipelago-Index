@@ -74,6 +74,12 @@ def validate_world(
     if "name" not in data or not str(data["name"]).strip():
         errors.append(f"{path}: missing required `name` field")
 
+    # Disabled worlds are kept in the index for history but ignored by apwm.
+    # Skip further checks so quarantine / manual disable can land without
+    # failing CI on known-bad URLs.
+    if data.get("disabled") is True:
+        return errors
+
     if data.get("supported") is True:
         if "home" not in data or not str(data["home"]).strip():
             errors.append(f"{path}: supported worlds require a `home` field")
