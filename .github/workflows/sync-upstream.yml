@@ -6,11 +6,12 @@ name: Sync upstream
 # GITHUB_TOKEN nor a contents-only BOT_PAT can open PRs on this repo, so we:
 #   1. Reset to origin/main tip (not a stale workflow_dispatch SHA)
 #   2. Merge upstream onto bot/sync-upstream and push (BOT_PAT)
-#   3. Quarantine unreachable version URLs on changed worlds so one dead
+#   3. Auto-resolve .github/workflows conflicts (we deleted ionium GitLab
+#      triggers; upstream may still edit them)
+#   4. Quarantine unreachable version URLs on changed worlds so one dead
 #      release cannot block the whole sync
-#   4. Pin .github/workflows from origin/main onto that branch so PR CI uses
-#      current gate logic (push workflows come from the branch commit)
-#   5. Wait for validate + fuzz-ok on that commit, then FF main
+#   5. Pin .github/workflows + scripts/ci from origin/main onto that branch
+#   6. Wait for validate + fuzz-ok on that commit, then FF main
 #
 # Secrets:
 #   BOT_PAT — contents:write so the job can push bot/sync-upstream and main.
@@ -79,9 +80,38 @@ jobs:
           else
             echo "Merging upstream/main into $BRANCH"
             if ! git merge --no-edit -m "Merge ionium-ap/Archipelago-index:main [upstream-sync]" upstream/main; then
-              echo "::error::Merge conflict while syncing from ionium-ap/Archipelago-index:main"
-              git merge --abort || true
-              exit 1
+              # Common case: we deleted ionium GitLab workflows (trigger.yml,
+              # mirror-to-gitlab.yml, …) and upstream still touches them.
+              # Keep our deletions for .github/workflows; fail on anything else.
+              mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+              if [ "${#conflicts[@]}" -eq 0 ]; then
+                echo "::error::Merge failed without listed conflicts" >&2
+                git merge --abort || true
+                exit 1
+              fi
+              non_wf=0
+              for path in "${conflicts[@]}"; do
+                case "$path" in
+                  .github/workflows/*)
+                    echo "Resolving workflow conflict in favor of fork: $path"
+                    if git cat-file -e "origin/main:$path" 2>/dev/null; then
+                      git checkout origin/main -- "$path"
+                    else
+                      git rm -f --ignore-unmatch "$path" || rm -f "$path"
+                    fi
+                    ;;
+                  *)
+                    echo "::error::Unresolved merge conflict (not auto-safe): $path" >&2
+                    non_wf=1
+                    ;;
+                esac
+              done
+              if [ "$non_wf" -ne 0 ]; then
+                git merge --abort || true
+                exit 1
+              fi
+              git add -A .github/workflows/
+              git commit --no-edit -m "Merge ionium-ap/Archipelago-index:main [upstream-sync]"
             fi
           fi
 
@@ -98,11 +128,19 @@ jobs:
             fi
           fi
 
-          # Push workflows + CI scripts are read from this commit — pin from main
-          # so upstream script churn cannot remove quarantine / validate helpers.
+          # Replace workflows with exactly origin/main's set so ionium GitLab
+          # workflow files cannot linger after a conflicted merge.
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
           git checkout origin/main -- .github/workflows/ scripts/ci/
-          if ! git diff --cached --quiet; then
-            git commit -m "ci: pin Actions workflows and scripts/ci from main"
+          while IFS= read -r path; do
+            if ! git cat-file -e "origin/main:$path" 2>/dev/null; then
+              git rm -f --ignore-unmatch "$path" || true
+            fi
+          done < <(git ls-files .github/workflows)
+          if ! git diff --cached --quiet || ! git diff --quiet -- .github/workflows scripts/ci; then
+            git add -A .github/workflows scripts/ci
+            git diff --cached --quiet || git commit -m "ci: pin Actions workflows and scripts/ci from main"
           fi
 
           git push -u origin "HEAD:refs/heads/${BRANCH}" --force
