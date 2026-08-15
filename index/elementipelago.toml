@@ -1,0 +1,6 @@
+name = "Elementipelago"
+home = "https://github.com/peppidesu/elementipelago"
+default_url = "https://github.com/peppidesu/elementipelago/releases/download/v{{version}}/elementipelago.apworld"
+
+[versions]
+"1.1.0" = {}
