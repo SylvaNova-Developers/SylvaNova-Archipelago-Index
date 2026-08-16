@@ -6,8 +6,9 @@ name: Sync upstream
 # GITHUB_TOKEN nor a contents-only BOT_PAT can open PRs on this repo, so we:
 #   1. Reset to origin/main tip (not a stale workflow_dispatch SHA)
 #   2. Merge upstream onto bot/sync-upstream and push (BOT_PAT)
-#   3. Auto-resolve .github/workflows conflicts (we deleted ionium GitLab
-#      triggers; upstream may still edit them)
+#   3. Auto-resolve safe merge conflicts:
+#        - .github/workflows/* (we deleted ionium GitLab triggers)
+#        - index.lock (both sides regenerate; take upstream, post-merge refreshes)
 #   4. Quarantine unreachable version URLs on changed worlds so one dead
 #      release cannot block the whole sync
 #   5. Pin .github/workflows + scripts/ci from origin/main onto that branch
@@ -100,6 +101,14 @@ jobs:
                       git rm -f --ignore-unmatch "$path" || rm -f "$path"
                     fi
                     ;;
+                  index.lock)
+                    # Fork post-merge and upstream both rewrite the lock.
+                    # Take upstream for the sync merge; post-merge publish
+                    # regenerates index.lock for fork-only worlds afterward.
+                    echo "Resolving index.lock conflict using upstream copy"
+                    git checkout --theirs -- index.lock
+                    git add index.lock
+                    ;;
                   *)
                     echo "::error::Unresolved merge conflict (not auto-safe): $path" >&2
                     non_wf=1
@@ -110,7 +119,7 @@ jobs:
                 git merge --abort || true
                 exit 1
               fi
-              git add -A .github/workflows/
+              git add -A
               git commit --no-edit -m "Merge ionium-ap/Archipelago-index:main [upstream-sync]"
             fi
           fi
