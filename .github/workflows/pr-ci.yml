@@ -219,26 +219,47 @@ jobs:
           echo "fuzz matrix failed (result=$result)" >&2
           exit 1
 
-      - name: Hint force-merge on fuzz failure
-        if: failure() && steps.gate.outputs.failed == 'true' && github.event.pull_request.number
+  fuzz-review:
+    name: fuzz-review
+    needs: [discover, fuzz]
+    if: |
+      always()
+      && needs.fuzz.result == 'failure'
+      && github.event_name == 'pull_request'
+      && github.event.pull_request.number
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download fuzz reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: fuzz-*
+          merge-multiple: true
+          path: fuzz-artifacts
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Post fuzz review comment
         env:
           GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          body=$(cat <<'EOF'
-          Fuzz gate failed (`fuzz-ok`). Collaborators can still land this PR if the high failure rate is acceptable:
-
-          ```
-          /force-merge
-          ```
-
-          (or comment `r+` / `r++`, or apply label `force-merge` / `bypass-fuzz`). `validate` must stay green; see `.github/workflows/force-merge.yml`.
-          EOF
-          )
-          # Strip leading indentation from the heredoc body.
-          body=$(printf '%s\n' "$body" | sed 's/^          //')
-          gh pr comment "$PR" --repo "${{ github.repository }}" --body "$body"
+          pip install -q pyyaml
+          if ! compgen -G "fuzz-artifacts/**/fuzz-report-*.json" > /dev/null; then
+            echo "No fuzz report artifacts found; posting fallback hint"
+            gh pr comment "$PR" --repo "$REPO" --body \
+              "Fuzz gate failed (\`fuzz-ok\`). Collaborators can still land with \`/force-merge\` (or \`r+\`) if acceptable — see \`.github/workflows/force-merge.yml\`."
+            exit 0
+          fi
+          python3 scripts/ci/summarize_fuzz_reports.py fuzz-artifacts \
+            --markdown-out /tmp/fuzz-review.md \
+            --json-out /tmp/fuzz-review.json
+          gh pr comment "$PR" --repo "$REPO" --body-file /tmp/fuzz-review.md
 
   auto-merge:
     name: auto-merge

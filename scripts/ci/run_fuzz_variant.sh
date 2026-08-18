@@ -252,7 +252,11 @@ if [[ ! -f fuzz_output/report.json ]]; then
 fi
 
 cp fuzz_output/report.json "$INDEX_ROOT/fuzz-report-${APWORLD_NAME}-${VARIANT}.json"
+pip install -q pyyaml
+REVIEW_OUT="$INDEX_ROOT/fuzz-review-${APWORLD_NAME}-${VARIANT}.json"
 "$PYTHON_BIN" "$INDEX_ROOT/scripts/ci/check_fuzz_report.py" \
   fuzz_output/report.json \
   --max-rate "$FUZZ_MAX_RATE" \
-  --label "${APWORLD_NAME}/${VARIANT}"
+  --label "${APWORLD_NAME}/${VARIANT}" \
+  --edge-cases "$INDEX_ROOT/scripts/ci/fuzz_edge_cases.yaml" \
+  --review-out "$REVIEW_OUT"

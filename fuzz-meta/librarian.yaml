@@ -1,0 +1,18 @@
+meta_description: >
+  Librarian 2.x rejects several unlock_mode / goal pairings at generation time.
+  Keep the fuzzer on supported combos; determinism failures are not covered here.
+
+Librarian Tidy Up the Arcane Library:
+  fuzz_constraints:
+    - option: goal
+      if_value: "custom"
+      then:
+        unlock_mode: progressive_unlocks
+    - option: unlock_mode
+      if_value: individual_series_unlocks
+      then:
+        goal: full
+    - option: unlock_mode
+      if_value: booksanity
+      then:
+        goal: floor_1

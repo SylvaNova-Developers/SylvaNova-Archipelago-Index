@@ -1,0 +1,35 @@
+meta_description: >
+  Constrain random goal presets to enabled article categories and keep bingo
+  boards available when letter-pair bingo is on. Without this, the fuzzer often
+  picks goal_article_preset values from disabled include_* categories or enables
+  bingo with zero unlocked boards.
+
+Wikipelago:
+  fuzz_constraints:
+    # When random goal is off, a disabled category must not host the preset goal.
+    - option: include_video_games
+      if_value: "false"
+      then:
+        random_goal_article: "true"
+    - option: include_movies
+      if_value: "false"
+      then:
+        random_goal_article: "true"
+    - option: include_tv_shows
+      if_value: "false"
+      then:
+        random_goal_article: "true"
+    - option: include_miscellaneous
+      if_value: "false"
+      then:
+        random_goal_article: "true"
+
+    # Bingo enabled but zero boards (start + unlocks both 0) is invalid.
+    - option: toggle_bingo_letterpairs
+      if_value: "true"
+      then:
+        bingo_cards_start: random-range-1-20
+    - option: bingo_cards_start
+      if_value: "0"
+      then:
+        bingo_card_unlocks: random-range-1-20

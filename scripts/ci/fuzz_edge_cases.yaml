@@ -1,0 +1,80 @@
+# Known fuzz failure patterns for SylvaNova index CI.
+#
+# reclassify: treat matching failures like OptionError for the <20% gate —
+#   option incompatibilities or tight pools the world rejects with a plain
+#   Exception instead of OptionError.
+#
+# review: still count toward the gate, but flag in PR comments for human
+#   intervention (may be acceptable via /force-merge or may be a real bug).
+
+reclassify:
+  - id: goal-category-disabled
+    pattern: goal article preset category is disabled
+    reason: >
+      The fuzzer picked a fixed goal preset from an article category that was
+      turned off. Real YAMLs avoid this; it is not a generation logic crash.
+    suggestion: >
+      Add or extend fuzz-meta constraints for this world, or force-merge if you
+      accept the remaining failure rate.
+
+  - id: item-math-invalid
+    pattern: item math invalid
+    reason: >
+      Randomized progression counts exceed free locations for this option mix.
+      Often a tight/unlucky combo rather than broken fill logic.
+    suggestion: >
+      Tighten fuzz-meta numeric ranges, or force-merge if the rate is still
+      acceptable after reclassification.
+
+  - id: bingo-no-boards
+    pattern: bingo enabled with 0 boards
+    reason: >
+      Letter-pair bingo was enabled but no bingo boards were unlocked at start
+      or via the item pool.
+    suggestion: >
+      Add fuzz-meta (bingo_cards_start / bingo_card_unlocks) for this world.
+
+  - id: option-goal-incompatible
+    pattern: does not support goal
+    reason: >
+      The world explicitly rejects this unlock/goal pairing at generation time.
+    suggestion: >
+      Add fuzz-meta constraints linking goal and unlock_mode (or similar).
+
+  - id: option-error-class
+    pattern: OptionError
+    reason: Option incompatibility raised as OptionError (already ignored by fuzzer stats).
+
+review:
+  - id: non-deterministic
+    pattern: Non-deterministic generation
+    reason: >
+      Same seed and YAML produced different output (often itempool order).
+      This is usually a real apworld bug, not a CI edge case.
+    suggestion: >
+      Do not force-merge unless you knowingly accept non-deterministic seeds.
+      Report upstream to the apworld author.
+
+  - id: fill-error
+    pattern: FillError
+    reason: >
+      The multiworld fill step failed. Could be logic or an extreme option mix.
+    suggestion: >
+      Inspect the failing YAML/options; force-merge only if you understand the
+      risk.
+
+  - id: timeout
+    pattern: "<class 'TimeoutError'>"
+    reason: >
+      Generation exceeded the fuzzer time limit. Common on large worlds; timeouts
+      are excluded from the failure-rate denominator but slow runs may hide issues.
+    suggestion: >
+      If failures are mostly timeouts, consider perf tuning upstream; otherwise
+      check for hangs during generation.
+
+  - id: logic-flaw
+    pattern: logic flaw
+    reason: >
+      Fuzzer detected a likely logic or placement issue during a check variant.
+    suggestion: >
+      Treat as a real bug unless a maintainer confirms otherwise.
