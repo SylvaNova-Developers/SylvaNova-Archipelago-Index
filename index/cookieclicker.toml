@@ -1,0 +1,6 @@
+name = "Cookie Clicker"
+home = "https://github.com/Charlignon/AP_CookieClicker"
+default_url = "https://github.com/Charlignon/AP_CookieClicker/releases/download/{{version}}/cookieclicker.apworld"
+
+[versions]
+"0.8.6" = {}
