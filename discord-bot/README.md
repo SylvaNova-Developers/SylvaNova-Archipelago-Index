@@ -1,7 +1,7 @@
 # SylvaNova apworld request bot (scaffold)
 
 Minimal Discord + GitHub framework for submitting apworld entries to
-[`chouticly/SylvaNova-archipelago-index`](https://github.com/chouticly/SylvaNova-archipelago-index).
+[`SylvaNova-Developers/SylvaNova-Archipelago-Index`](https://github.com/SylvaNova-Developers/SylvaNova-Archipelago-Index).
 
 **Status:** scaffold only — not wired to a production Discord application yet.
 Fuzz / validate / auto-merge stay in the index repo's `PR CI` workflow; this bot
@@ -12,7 +12,7 @@ only opens the PR.
 This directory is portable. When you are ready:
 
 ```bash
-gh repo create chouticly/SylvaNova-apworld-bot --public --source=discord-bot --remote=origin --push
+gh repo create SylvaNova-Developers/SylvaNova-Apworld-Bot --public --source=discord-bot --remote=origin --push
 ```
 
 (or copy `discord-bot/` to a new checkout and push)

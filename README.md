@@ -130,7 +130,7 @@ Workflow: `.github/workflows/post-merge-publish.yml`
 
 After `main` advances (skips commits marked `[skip ci]`):
 
-1. Builds `apwm` from `chouticly/SylvaNova-archipelago-lobby`
+1. Builds `apwm` from `SylvaNova-Developers/SylvaNova-Archipelago-Lobby`
 2. Runs `apwm update`; if `index.lock` changed, opens `bot/update-index-lock` PR (direct pushes to `main` are blocked by required checks) and waits for merge
 3. If both secrets are set, calls the lobby admin refresh endpoint:
    - `LOBBY_REFRESH_URL` — e.g. `https://your-host/worlds/refresh`
