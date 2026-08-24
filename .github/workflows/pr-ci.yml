@@ -96,7 +96,7 @@ jobs:
         if: needs.discover.outputs.has_worlds == 'true'
         uses: actions/checkout@v4
         with:
-          repository: chouticly/SylvaNova-archipelago-lobby
+          repository: SylvaNova-Developers/SylvaNova-Archipelago-Lobby
           path: _lobby
 
       - name: Install Rust toolchain

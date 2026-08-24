@@ -30,7 +30,7 @@ def load_settings() -> Settings:
         discord_token=token,
         discord_guild_id=int(guild),
         github_token=github,
-        index_repo=os.environ.get("INDEX_REPO", "chouticly/SylvaNova-archipelago-index").strip(),
+        index_repo=os.environ.get("INDEX_REPO", "SylvaNova-Developers/SylvaNova-Archipelago-Index").strip(),
         index_base_branch=os.environ.get("INDEX_BASE_BRANCH", "main").strip(),
         pr_branch_prefix=os.environ.get("PR_BRANCH_PREFIX", "bot/apworld-").strip(),
     )
