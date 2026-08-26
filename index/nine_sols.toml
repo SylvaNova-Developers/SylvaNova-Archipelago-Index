@@ -1,5 +1,5 @@
 name = "Nine Sols"
-home = "https://discord.com/channels/731205301247803413/1291949699150123048"
+home = "https://github.com/Ixrec/NineSolsArchipelagoRandomizer"
 default_url = "https://github.com/Ixrec/NineSolsArchipelagoRandomizer/releases/download/{{version}}/nine_sols.apworld"
 
 [versions]
@@ -14,3 +14,4 @@ default_url = "https://github.com/Ixrec/NineSolsArchipelagoRandomizer/releases/d
 "0.5.1" = {}
 "0.5.3" = {}
 "0.6.1" = {}
+"0.6.3" = {}
