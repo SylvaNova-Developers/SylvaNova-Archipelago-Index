@@ -1,8 +1,9 @@
 name = "Wikipelago"
 home = "https://github.com/Dreskn/Wikipelago-Continued"
-default_url = "https://github.com/Dreskn/Wikipelago-Continued/releases/download/v{{version}}!/wikipelago.apworld"
+default_url = "https://github.com/Dreskn/Wikipelago-Continued/releases/download/{{version}}/wikipelago.apworld"
 
 [versions]
-"0.6.0-ZaWarudo" = {}
+"0.6.0-ZaWarudo" = { url = "https://github.com/Dreskn/Wikipelago-Continued/releases/download/v0.6.0-ZaWarudo!/wikipelago.apworld" }
 "0.5.1" = { url = "https://github.com/Dreskn/Wikipelago-Continued/releases/download/v0.5.1/wikipelago.apworld" }
 "1.0.0-beta1" = { url = "https://github.com/Dreskn/Wikipelago-Continued/releases/download/1.0.0-beta1/wikipelago.apworld" }
+"1.0.0" = {}
