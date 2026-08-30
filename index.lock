@@ -346,6 +346,9 @@
 "0.4.0-rc2" = "289b1c9c1dd96b2f128497d115074b2e599eb9dbdd9247f36ddee62a8ce8f96a"
 "0.4.2" = "0bd2bd1ca7589789622d997c5ce48a1a19450156808f194aa00dd94bf919b09b"
 
+[fez]
+"0.6.1" = "983a13e084fa06f740c3f614b2c6bfd13bf617ba3eedd8f74a612393224ec027"
+
 [ff12_open_world]
 "0.6.3" = "960801e0368d19d41557299804388cf31e46fac5251c4175b271b00cdd340090"
 
@@ -965,6 +968,9 @@
 [manual_superbomberman3_phye]
 "0.0.1" = "78ca4b2a055d9b052ef6467ca2620ec9137113ddac855f2f3afc71c2e66e71fe"
 
+[manual_supermariobrosmovie_ziskathesilly]
+"1.0.0" = "70e4da30d184f87b9d13e2e420a576a8e7b57e5fe0239c2da850ed8e7d50a0b5"
+
 [manual_supermariogalaxy_rowsmg]
 "0.0.1" = "7845835f342dfb0707e866b1738050f81226bacd11acceae9ea772680daa9225"
 
@@ -975,7 +981,7 @@
 "0.0.1" = "9f662512b775d3559db074aed5ee54d9c7a5b119ac1ff82f757d0d81a498fe4b"
 
 [manual_teamfortress2frag_rowtf2]
-"0.0.1" = "d45c24fa5e8236a54c24f6133421bd90bc53b52b32117c62f412648dec88562c"
+"0.0.3" = "8a293b76a0a648ce22fb3d75d63d1302456acf73f670f7ae13f2246ba786eaaf"
 
 [manual_thelegendofzeldaechoesofwisdomechohunt_killedragon]
 "0.0.3" = "a69c31cede3ed3ecc642a25c45e4018c46c1be8918945b3227fe60cc6e9cb604"
