@@ -8,8 +8,8 @@ name: Force merge
 # Still requires the latest `validate` check on the PR head to be success.
 # Rulesets bind required checks to workflow job runs, so posting a standalone
 # fuzz-ok check run does not satisfy branch protection. Instead we label the
-# PR, rerun the PR CI fuzz-ok job (which succeeds when the label is present),
-# wait for that job check to go green, then squash-merge.
+# PR, rerun the full PR CI workflow (per-job reruns keep stale fuzz-ok steps),
+# wait for a fresh fuzz-ok job to go green with the bypass label, then merge.
 
 on:
   issue_comment:
@@ -181,7 +181,7 @@ jobs:
             exit 1
           fi
 
-      - name: Rerun fuzz-ok job
+      - name: Rerun PR CI workflow
         if: steps.prep.outputs.pr != ''
         id: rerun
         env:
@@ -198,16 +198,11 @@ jobs:
               "❌ Force-merge blocked: no \`PR CI\` workflow run found for \`${SHA:0:7}\`. Push a new commit or re-run PR CI, then retry."
             exit 1
           fi
-          job_id=$(gh api "repos/${REPO}/actions/runs/${run_id}/jobs" --paginate \
-            --jq '[.jobs[] | select(.name == "fuzz-ok")] | sort_by(.started_at) | last | .id')
-          if [ -z "$job_id" ] || [ "$job_id" = "null" ]; then
-            echo "No fuzz-ok job found in run $run_id" >&2
-            exit 1
-          fi
-          echo "Rerunning fuzz-ok job $job_id from PR CI run $run_id"
-          gh api --method POST "repos/${REPO}/actions/jobs/${job_id}/rerun"
-          echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
+          rerun_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "Rerunning PR CI run $run_id from $rerun_at (full rerun uses workflow from main)"
+          gh api --method POST "repos/${REPO}/actions/runs/${run_id}/rerun"
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "rerun_at=$rerun_at" >> "$GITHUB_OUTPUT"
 
       - name: Wait for fuzz-ok green
         if: steps.prep.outputs.pr != ''
@@ -216,10 +211,11 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ steps.prep.outputs.sha }}
           PR: ${{ steps.prep.outputs.pr }}
-          JOB_ID: ${{ steps.rerun.outputs.job_id }}
+          RUN_ID: ${{ steps.rerun.outputs.run_id }}
+          RERUN_AT: ${{ steps.rerun.outputs.rerun_at }}
         run: |
           set -euo pipefail
-          deadline=$((SECONDS + 900))
+          deadline=$((SECONDS + 7200))
           while [ "$SECONDS" -lt "$deadline" ]; do
             current_sha=$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)
             if [ "$current_sha" != "$SHA" ]; then
@@ -229,25 +225,31 @@ jobs:
               exit 1
             fi
 
-            job_status=$(gh api "repos/${REPO}/actions/jobs/${JOB_ID}" --jq '"\(.status):\(.conclusion // "")"')
-            echo "fuzz-ok job status=$job_status"
-            case "$job_status" in
+            jobs=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" --paginate)
+            fuzz_ok=$(echo "$jobs" | jq -r --arg rerun "$RERUN_AT" '
+              [.jobs[] | select(.name == "fuzz-ok" and .started_at >= $rerun)]
+              | sort_by(.started_at)
+              | last
+              | if . == null then "missing:" else "\(.status):\(.conclusion // "")" end
+            ')
+            echo "fuzz-ok job status=$fuzz_ok (since $RERUN_AT)"
+            case "$fuzz_ok" in
               completed:success)
                 echo "fuzz-ok job succeeded"
                 exit 0
                 ;;
               completed:*)
-                echo "fuzz-ok job finished with $job_status" >&2
+                echo "fuzz-ok job finished with $fuzz_ok" >&2
                 gh pr comment "$PR" --repo "$REPO" --body \
-                  "❌ Force-merge blocked: \`fuzz-ok\` rerun finished with \`$job_status\`. Ensure the PR branch includes the fuzz bypass workflow and retry."
+                  "❌ Force-merge blocked: \`fuzz-ok\` rerun finished with \`$fuzz_ok\`. Ensure the \`force-merge\` label is present and retry."
                 exit 1
                 ;;
             esac
-            sleep 15
+            sleep 30
           done
           echo "Timed out waiting for fuzz-ok rerun" >&2
           gh pr comment "$PR" --repo "$REPO" --body \
-            "❌ Force-merge timed out waiting for \`fuzz-ok\` to rerun on \`${SHA:0:7}\`. Check PR CI and retry."
+            "❌ Force-merge timed out waiting for \`fuzz-ok\` after rerunning PR CI on \`${SHA:0:7}\`. Check PR CI and retry."
           exit 1
 
       - name: Squash-merge PR
@@ -272,7 +274,10 @@ jobs:
           fi
 
           merged=false
-          if gh pr merge "$PR" --repo "$REPO" --squash --delete-branch; then
+          if gh pr merge "$PR" --repo "$REPO" --squash --delete-branch --admin; then
+            merged=true
+            echo "Admin squash-merged PR #$PR"
+          elif gh pr merge "$PR" --repo "$REPO" --squash --delete-branch; then
             merged=true
             echo "Squash-merged PR #$PR"
           elif gh pr merge "$PR" --repo "$REPO" --auto --squash; then
