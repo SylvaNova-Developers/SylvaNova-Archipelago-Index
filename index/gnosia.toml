@@ -1,0 +1,6 @@
+name = "Gnosia"
+home = "https://github.com/Mat8071/Gnosia-Archipelago-Randomizer"
+default_url = "https://github.com/Mat8071/Gnosia-Archipelago-Randomizer/releases/download/v{{version}}/gnosia.apworld"
+
+[versions]
+"0.1.4" = {}
