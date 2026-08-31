@@ -5,3 +5,4 @@ default_url = "https://github.com/agilbert1412/StardewArchipelago/releases/downl
 [versions]
 "8.1.1" = { url = "https://github.com/agilbert1412/StardewArchipelago/releases/download/8.1.1/stardew_valley_8.1.1.apworld" }
 "8.1.2" = {}
+"8.1.3" = {}
