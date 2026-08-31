@@ -1,5 +1,7 @@
 name = "Stardew Valley"
-home = "https://ovapelago.sylvanova.gg"
-default_url = "https://github.com/agilbert1412/StardewArchipelago/releases/download/{{version}}/stardew_valley_{{version}}.apworld"
+home = "https://github.com/agilbert1412/StardewArchipelago"
+default_url = "https://github.com/agilbert1412/StardewArchipelago/releases/download/{{version}}/stardew_valley.apworld"
+
 [versions]
-"8.1.1" = {}
+"8.1.1" = { url = "https://github.com/agilbert1412/StardewArchipelago/releases/download/8.1.1/stardew_valley_8.1.1.apworld" }
+"8.1.2" = {}
