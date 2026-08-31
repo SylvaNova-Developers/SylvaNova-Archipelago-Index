@@ -201,8 +201,36 @@ jobs:
     if: always() && needs.discover.result == 'success'
     runs-on: ubuntu-latest
     steps:
+      - name: Check force-merge bypass label
+        id: bypass
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          labels=$(gh pr view "$PR" --repo "$REPO" --json labels -q '.labels[].name')
+          bypass=false
+          while IFS= read -r label; do
+            case "$label" in
+              force-merge|bypass-fuzz)
+                bypass=true
+                ;;
+            esac
+          done <<< "$labels"
+          echo "bypass=$bypass" >> "$GITHUB_OUTPUT"
+          if [ "$bypass" = true ]; then
+            echo "fuzz gate bypassed via force-merge label on PR #$PR"
+          fi
+
+      - name: Force-merge bypass (skip fuzz gate)
+        if: steps.bypass.outputs.bypass == 'true'
+        run: echo "fuzz-ok satisfied via collaborator force-merge bypass"
+
       - name: Require fuzz success when worlds changed
         id: gate
+        if: steps.bypass.outputs.bypass != 'true'
         run: |
           set -euo pipefail
           has="${{ needs.discover.outputs.has_worlds }}"

@@ -6,8 +6,10 @@ name: Force merge
 #   - PR label: `force-merge` or `bypass-fuzz`
 #
 # Still requires the latest `validate` check on the PR head to be success.
-# Best-effort posts a successful `fuzz-ok` override check (Actions token;
-# PATs cannot create check runs), then squash-merges — preferring --admin.
+# Rulesets bind required checks to workflow job runs, so posting a standalone
+# fuzz-ok check run does not satisfy branch protection. Instead we label the
+# PR, rerun the PR CI fuzz-ok job (which succeeds when the label is present),
+# wait for that job check to go green, then squash-merge.
 
 on:
   issue_comment:
@@ -18,8 +20,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  checks: write
-  statuses: write
+  checks: read
+  actions: write
 
 jobs:
   force-merge:
@@ -44,13 +46,14 @@ jobs:
           github.event.label.name == 'force-merge'
           || github.event.label.name == 'bypass-fuzz'
         )
+        && github.event.sender.login != 'github-actions[bot]'
       )
     runs-on: ubuntu-latest
     steps:
       - name: Resolve PR and authorize
         id: prep
         env:
-          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body || '' }}
           LABEL_NAME: ${{ github.event.label.name || '' }}
@@ -88,13 +91,14 @@ jobs:
             pr="$ISSUE_NUMBER"
           fi
 
-          meta=$(gh pr view "$pr" --repo "$REPO" --json number,url,title,state,isDraft,headRefOid,baseRefName,mergeable)
+          meta=$(gh pr view "$pr" --repo "$REPO" --json number,url,title,state,isDraft,headRefOid,baseRefName,headRefName)
           state=$(echo "$meta" | jq -r .state)
           draft=$(echo "$meta" | jq -r .isDraft)
           base=$(echo "$meta" | jq -r .baseRefName)
           sha=$(echo "$meta" | jq -r .headRefOid)
           url=$(echo "$meta" | jq -r .url)
           title=$(echo "$meta" | jq -r .title)
+          head_ref=$(echo "$meta" | jq -r .headRefName)
 
           if [ "$state" != "OPEN" ]; then
             echo "PR #$pr is $state; nothing to merge"
@@ -113,13 +117,15 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "title=$title" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
           echo "Force-merge candidate: #$pr ($title) @ $sha — $reason"
 
       - name: Require validate green
         if: steps.prep.outputs.pr != ''
+        id: validate
         env:
-          GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ steps.prep.outputs.sha }}
           PR: ${{ steps.prep.outputs.pr }}
@@ -140,43 +146,115 @@ jobs:
             exit 1
           fi
 
-      - name: Report fuzz-ok override check
+      - name: Ensure PR has force-merge bypass label
         if: steps.prep.outputs.pr != ''
         env:
-          # Check Runs API requires a GitHub App token. Classic/fine-grained
-          # PATs (BOT_PAT) return HTTP 403 — use the Actions GITHUB_TOKEN.
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.prep.outputs.pr }}
+        run: |
+          set -euo pipefail
+          labels=$(gh pr view "$PR" --repo "$REPO" --json labels -q '.labels[].name')
+          case " $labels " in
+            *" force-merge "*|*" bypass-fuzz "*)
+              echo "Bypass label already present"
+              ;;
+            *)
+              gh pr edit "$PR" --repo "$REPO" --add-label force-merge
+              echo "Added force-merge label"
+              ;;
+          esac
+
+      - name: Confirm PR CI supports fuzz bypass
+        if: steps.prep.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.prep.outputs.pr }}
+          HEAD_REF: ${{ steps.prep.outputs.head_ref }}
+        run: |
+          set -euo pipefail
+          workflow=$(gh api "repos/${REPO}/contents/.github/workflows/pr-ci.yml?ref=${HEAD_REF}" --jq -r .content | base64 -d)
+          if ! grep -q 'Check force-merge bypass label' <<< "$workflow"; then
+            gh pr comment "$PR" --repo "$REPO" --body \
+              "❌ Force-merge blocked: this PR branch does not include the fuzz bypass workflow yet. Sync or rebase onto \`main\`, then retry \`/force-merge\`."
+            exit 1
+          fi
+
+      - name: Rerun fuzz-ok job
+        if: steps.prep.outputs.pr != ''
+        id: rerun
+        env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ steps.prep.outputs.sha }}
-          REASON: ${{ steps.prep.outputs.reason }}
-          ACTOR: ${{ github.actor }}
+          PR: ${{ steps.prep.outputs.pr }}
         run: |
-          set -uo pipefail
-          body=$(jq -n \
-            --arg sha "$SHA" \
-            --arg reason "$REASON" \
-            --arg actor "$ACTOR" \
-            '{
-              name: "fuzz-ok",
-              head_sha: $sha,
-              status: "completed",
-              conclusion: "success",
-              output: {
-                title: "Force-merge override (fuzz bypassed)",
-                summary: ("Collaborator force-merge: fuzz gate bypassed.\n\n" + $reason + "\nRequested by @" + $actor)
-              }
-            }')
-          if gh api "repos/${REPO}/check-runs" -X POST --input - <<<"$body"; then
-            echo "Posted successful fuzz-ok override check on $SHA"
-          else
-            echo "Warning: could not post fuzz-ok check run; continuing with merge" >&2
+          set -euo pipefail
+          run_id=$(gh run list --repo "$REPO" --workflow=pr-ci.yml --commit "$SHA" --limit 1 --json databaseId -q '.[0].databaseId')
+          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+            echo "No PR CI run found for $SHA" >&2
+            gh pr comment "$PR" --repo "$REPO" --body \
+              "❌ Force-merge blocked: no \`PR CI\` workflow run found for \`${SHA:0:7}\`. Push a new commit or re-run PR CI, then retry."
+            exit 1
           fi
+          job_id=$(gh api "repos/${REPO}/actions/runs/${run_id}/jobs" --paginate \
+            --jq '[.jobs[] | select(.name == "fuzz-ok")] | sort_by(.started_at) | last | .id')
+          if [ -z "$job_id" ] || [ "$job_id" = "null" ]; then
+            echo "No fuzz-ok job found in run $run_id" >&2
+            exit 1
+          fi
+          echo "Rerunning fuzz-ok job $job_id from PR CI run $run_id"
+          gh api --method POST "repos/${REPO}/actions/jobs/${job_id}/rerun"
+          echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for fuzz-ok green
+        if: steps.prep.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.prep.outputs.sha }}
+          PR: ${{ steps.prep.outputs.pr }}
+          JOB_ID: ${{ steps.rerun.outputs.job_id }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 900))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            current_sha=$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)
+            if [ "$current_sha" != "$SHA" ]; then
+              echo "Head advanced from ${SHA:0:7} to ${current_sha:0:7}; aborting" >&2
+              gh pr comment "$PR" --repo "$REPO" --body \
+                "❌ Force-merge interrupted: PR head advanced to \`${current_sha:0:7}\` while waiting for \`fuzz-ok\`. Retry \`/force-merge\` on the new tip."
+              exit 1
+            fi
+
+            job_status=$(gh api "repos/${REPO}/actions/jobs/${JOB_ID}" --jq '"\(.status):\(.conclusion // "")"')
+            echo "fuzz-ok job status=$job_status"
+            case "$job_status" in
+              completed:success)
+                echo "fuzz-ok job succeeded"
+                exit 0
+                ;;
+              completed:*)
+                echo "fuzz-ok job finished with $job_status" >&2
+                gh pr comment "$PR" --repo "$REPO" --body \
+                  "❌ Force-merge blocked: \`fuzz-ok\` rerun finished with \`$job_status\`. Ensure the PR branch includes the fuzz bypass workflow and retry."
+                exit 1
+                ;;
+            esac
+            sleep 15
+          done
+          echo "Timed out waiting for fuzz-ok rerun" >&2
+          gh pr comment "$PR" --repo "$REPO" --body \
+            "❌ Force-merge timed out waiting for \`fuzz-ok\` to rerun on \`${SHA:0:7}\`. Check PR CI and retry."
+          exit 1
 
       - name: Squash-merge PR
         if: steps.prep.outputs.pr != ''
         env:
           GH_TOKEN: ${{ secrets.BOT_PAT || secrets.GITHUB_TOKEN }}
-          ACTIONS_TOKEN: ${{ github.token }}
+          COMMENT_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ steps.prep.outputs.pr }}
           REASON: ${{ steps.prep.outputs.reason }}
@@ -185,80 +263,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          post_fuzz_ok_override() {
-            local sha="$1"
-            local body
-            body=$(jq -n \
-              --arg sha "$sha" \
-              --arg reason "$REASON" \
-              --arg actor "$ACTOR" \
-              '{
-                name: "fuzz-ok",
-                head_sha: $sha,
-                status: "completed",
-                conclusion: "success",
-                output: {
-                  title: "Force-merge override (fuzz bypassed)",
-                  summary: ("Collaborator force-merge: fuzz gate bypassed.\n\n" + $reason + "\nRequested by @" + $actor)
-                }
-              }')
-            # PATs cannot create check runs; always use the Actions token here.
-            if GH_TOKEN="$ACTIONS_TOKEN" gh api "repos/${REPO}/check-runs" -X POST --input - <<<"$body"; then
-              echo "Posted successful fuzz-ok override check on $sha"
-            else
-              echo "Warning: could not post fuzz-ok check run on $sha; continuing" >&2
-            fi
-          }
-
-          # Re-read head SHA: admin merge bypasses branch protection on the
-          # current tip, so validate must be green on whatever we actually merge.
           current_sha=$(gh pr view "$PR" --repo "$REPO" --json headRefOid -q .headRefOid)
           if [ "$current_sha" != "$SHA" ]; then
-            echo "Head advanced from ${SHA:0:7} to ${current_sha:0:7}; re-checking validate"
-            runs=$(gh api "repos/${REPO}/commits/${current_sha}/check-runs" --paginate)
-            validate=$(echo "$runs" | jq -r '
-              [.check_runs[] | select(.name == "validate")]
-              | sort_by(.completed_at // .started_at)
-              | last
-              | "\(.status // "missing"):\(.conclusion // "")"
-            ')
-            if [ "$validate" != "completed:success" ]; then
-              echo "Refusing force-merge: validate is not green on $current_sha ($validate)" >&2
-              gh pr comment "$PR" --repo "$REPO" --body \
-                "❌ Force-merge blocked: head advanced to \`${current_sha:0:7}\` but \`validate\` is not green (got \`$validate\`)."
-              exit 1
-            fi
-            post_fuzz_ok_override "$current_sha"
-            SHA="$current_sha"
-          fi
-
-          # Prefer admin bypass (BOT_PAT with admin/maintain) so a failed
-          # fuzz-ok required check cannot block the merge.
-          merged=false
-          auto_queued=false
-          if gh pr merge "$PR" --repo "$REPO" --squash --delete-branch --admin; then
-            merged=true
-            echo "Admin squash-merged PR #$PR"
-          elif gh pr merge "$PR" --repo "$REPO" --squash --delete-branch; then
-            merged=true
-            echo "Squash-merged PR #$PR"
-          elif gh pr merge "$PR" --repo "$REPO" --auto --squash; then
-            auto_queued=true
-            echo "Auto-merge queued for PR #$PR"
-          fi
-
-          if [ "$merged" != true ] && [ "$auto_queued" != true ]; then
-            echo "Failed to merge PR #$PR" >&2
-            gh pr view "$PR" --repo "$REPO"
-            gh pr comment "$PR" --repo "$REPO" --body \
-              "❌ Force-merge requested ($REASON) but merge failed on \`${SHA:0:7}\`. Ensure \`BOT_PAT\` can admin-merge (bypass required checks), or that branch protection accepts the override \`fuzz-ok\` check."
+            echo "Head advanced from ${SHA:0:7} to ${current_sha:0:7}; refusing merge" >&2
+            GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR" --repo "$REPO" --body \
+              "❌ Force-merge blocked: head advanced to \`${current_sha:0:7}\` before merge. Retry \`/force-merge\` on the new tip."
             exit 1
           fi
 
-          if [ "$merged" = true ]; then
-            gh pr comment "$PR" --repo "$REPO" --body \
-              "✅ Force-merged despite fuzz failure ($REASON). \`validate\` was green on \`${SHA:0:7}\`; fuzz gate was intentionally bypassed by @$ACTOR."
-          else
-            gh pr comment "$PR" --repo "$REPO" --body \
-              "⏳ Auto-merge queued despite fuzz failure ($REASON). \`validate\` was green on \`${SHA:0:7}\`; fuzz gate was intentionally bypassed by @$ACTOR. Merge will complete when remaining requirements are satisfied."
+          merged=false
+          if gh pr merge "$PR" --repo "$REPO" --squash --delete-branch; then
+            merged=true
+            echo "Squash-merged PR #$PR"
+          elif gh pr merge "$PR" --repo "$REPO" --auto --squash; then
+            echo "Auto-merge queued for PR #$PR"
+            GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR" --repo "$REPO" --body \
+              "⏳ Auto-merge queued despite fuzz failure ($REASON). \`validate\` and \`fuzz-ok\` were green on \`${SHA:0:7}\`; fuzz gate was intentionally bypassed by @$ACTOR."
+            exit 0
           fi
+
+          if [ "$merged" != true ]; then
+            echo "Failed to merge PR #$PR" >&2
+            gh pr view "$PR" --repo "$REPO"
+            GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR" --repo "$REPO" --body \
+              "❌ Force-merge requested ($REASON) but merge failed on \`${SHA:0:7}\` even after \`fuzz-ok\` bypass. Check branch rules and \`BOT_PAT\` permissions."
+            exit 1
+          fi
+
+          GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR" --repo "$REPO" --body \
+            "✅ Force-merged despite fuzz failure ($REASON). \`validate\` was green on \`${SHA:0:7}\`; fuzz gate was intentionally bypassed by @$ACTOR."
