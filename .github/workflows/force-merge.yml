@@ -171,13 +171,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ steps.prep.outputs.pr }}
-          HEAD_REF: ${{ steps.prep.outputs.head_ref }}
         run: |
           set -euo pipefail
-          workflow=$(gh api "repos/${REPO}/contents/.github/workflows/pr-ci.yml?ref=${HEAD_REF}" --jq -r .content | base64 -d)
+          # pull_request workflows run from main, not the PR head branch.
+          workflow=$(gh api "repos/${REPO}/contents/.github/workflows/pr-ci.yml?ref=main" --jq '.content' | base64 -d)
           if ! grep -q 'Check force-merge bypass label' <<< "$workflow"; then
             gh pr comment "$PR" --repo "$REPO" --body \
-              "❌ Force-merge blocked: this PR branch does not include the fuzz bypass workflow yet. Sync or rebase onto \`main\`, then retry \`/force-merge\`."
+              "❌ Force-merge blocked: \`main\` does not include the fuzz bypass workflow yet. Merge the force-merge workflow update, then retry \`/force-merge\`."
             exit 1
           fi
 
