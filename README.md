@@ -116,7 +116,7 @@ When fuzz fails above the gate but you still want the world indexed, a **collabo
 
 Workflow: `.github/workflows/force-merge.yml`
 
-That path still requires `validate` green on the PR head. It adds a `force-merge` label, reruns the PR CI `fuzz-ok` job (which succeeds when that label is present), waits for the job check to go green, then squash-merges. Posting a standalone `fuzz-ok` check run does **not** satisfy the repo ruleset — the workflow job must pass. PR branches must include the bypass logic on `main` (sync/rebase if the PR predates it).
+That path still requires `validate` green on the PR head. It adds a `force-merge` label, reruns the full PR CI workflow (per-job reruns keep stale `fuzz-ok` steps from before the bypass existed), waits for a fresh `fuzz-ok` job to go green, then squash-merges. Posting a standalone `fuzz-ok` check run does **not** satisfy the repo ruleset — the workflow job must pass.
 
 Recommended repo settings:
 
