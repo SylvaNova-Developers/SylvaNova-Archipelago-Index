@@ -1,0 +1,6 @@
+name = "Pokemon HeartGold and SoulSilver"
+home = "https://github.com/ljtpetersen/hgss_archipelago"
+default_url = "https://github.com/ljtpetersen/hgss_archipelago/releases/download/v{{version}}/pokemon_hgss.apworld"
+
+[versions]
+"0.0.1" = {}
