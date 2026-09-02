@@ -4,3 +4,4 @@ default_url = "https://github.com/ClaudeChibout/Archipelago-ADOFAI/releases/down
 
 [versions]
 "1.2.1" = {}
+"2.0.0-beta" = {}
