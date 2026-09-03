@@ -1,0 +1,7 @@
+name = "Manual_ReadBooks_RoobyRoo"
+display_name = "Manual: ReadBooks"
+home = "https://github.com/Virunas/apworldcollection"
+default_url = "https://github.com/Virunas/apworldcollection/releases/download/v{{version}}/manual_readbooks_roobyroo.apworld"
+
+[versions]
+"3.0.0" = {}
