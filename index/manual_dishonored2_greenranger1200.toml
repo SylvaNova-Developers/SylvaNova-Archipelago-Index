@@ -1,0 +1,7 @@
+name = "Manual_Dishonored2_greenranger1200"
+display_name = "Manual: Dishonored2"
+home = "https://github.com/Virunas/apworldcollection"
+default_url = "https://github.com/Virunas/apworldcollection/releases/download/v{{version}}/manual_dishonored2_greenranger1200.apworld"
+
+[versions]
+"1.0.0" = {}
