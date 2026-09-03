@@ -1,5 +1,5 @@
 name = "ULTRAKILL"
-home = "https://discord.com/channels/1085716850370957462/1123371409339584532"
+home = "https://github.com/TRPG0/ArchipelagoULTRAKILL"
 default_url = "https://github.com/TRPG0/ArchipelagoULTRAKILL/releases/download/{{version}}/ultrakill.apworld"
 
 [versions]
@@ -8,3 +8,4 @@ default_url = "https://github.com/TRPG0/ArchipelagoULTRAKILL/releases/download/{
 "3.2.6" = {}
 "3.4.5" = {}
 "3.5.2" = {}
+"3.5.6" = {}
