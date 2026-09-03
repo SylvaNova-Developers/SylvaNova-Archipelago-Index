@@ -1,0 +1,6 @@
+name = "Clique"
+home = "https://github.com/Virunas/apworldcollection"
+default_url = "https://github.com/Virunas/apworldcollection/releases/download/v{{version}}/clique.apworld"
+
+[versions]
+"1.5.4" = {}
