@@ -1,0 +1,7 @@
+name = "Manual_AmericanTruckSim_ChewingtonIII"
+display_name = "Manual: AmericanTruckSim"
+home = "https://github.com/ChewingtonIII/ats-archipelago-attoffy"
+default_url = "https://github.com/ChewingtonIII/ats-archipelago-attoffy/releases/download/{{version}}/manual_americantrucksim_chewingtoniii.apworld"
+
+[versions]
+"0.2.0" = {}
