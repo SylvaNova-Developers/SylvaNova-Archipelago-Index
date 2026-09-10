@@ -4,3 +4,4 @@ default_url = "https://github.com/cxve/q-ap-world/releases/download/v{{version}}
 
 [versions]
 "2.0.2" = {}
+"3.0.0" = {}
