@@ -1,0 +1,6 @@
+name = "Dead Cells"
+home = "https://github.com/Maxlamenace572/DeadCellsArchipelago"
+default_url = "https://github.com/Maxlamenace572/DeadCellsArchipelago/releases/download/{{version}}/dead_cells.apworld"
+
+[versions]
+"0.1.8" = {}
