@@ -1,0 +1,6 @@
+name = "Elden Ring"
+home = "https://github.com/4laric/er-archipelago"
+default_url = "https://github.com/4laric/er-archipelago/releases/download/v{{version}}/eldenring.apworld"
+
+[versions]
+"0.6.1" = {}
