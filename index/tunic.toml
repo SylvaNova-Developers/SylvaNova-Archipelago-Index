@@ -1,2 +1,6 @@
 name = "TUNIC"
 home = "https://ovapelago.sylvanova.gg"
+default_url = "https://github.com/silent-destroyer/tunic-randomizer/releases/download/{{version}}/tunic.apworld"
+
+[versions]
+"5.0.2" = {}
