@@ -32,6 +32,8 @@ When the author uses tags that are semver compatible, it's possible to add a `de
 `default_url = "https://github.com/foo/bar/releases/download/{{version}}/foo.apworld` and to specify versions like this: `"0.1.0" = {}`.
 This makes it easier to update and can be used to automatically fetch newer versions so it's the prefered way of doing things.
 
+## Running some of the tests local in your browser
+We recently created a home to do our Index testing here: https://aptests.ionium.fyi/, if you wanted to do quick testing for worlds without having to setup the fuzzer yourself!
 
 # Criteria for inclusion
 
