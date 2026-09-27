@@ -1,5 +1,5 @@
 name = "Pokemon Platinum"
-home = "https://discord.com/channels/731205301247803413/1197311500528922655"
+home = "https://github.com/ljtpetersen/platinum_archipelago"
 default_url = "https://github.com/ljtpetersen/platinum_archipelago/releases/download/v{{version}}/pokemon_platinum.apworld"
 
 [versions]
@@ -8,3 +8,4 @@ default_url = "https://github.com/ljtpetersen/platinum_archipelago/releases/down
 "0.1.6" = {}
 "0.1.7" = {}
 "0.1.8" = {}
+"0.2.2" = {}
