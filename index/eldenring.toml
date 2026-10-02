@@ -4,3 +4,4 @@ default_url = "https://github.com/4laric/er-archipelago/releases/download/v{{ver
 
 [versions]
 "0.6.1" = {}
+"0.6.4" = {}
