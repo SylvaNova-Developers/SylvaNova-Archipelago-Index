@@ -3,5 +3,4 @@ home = "https://github.com/jordansds/Archipelago_TWW3_Alt"
 default_url = "https://github.com/jordansds/Archipelago_TWW3_Alt/releases/download/v{{version}}/tww3.apworld"
 
 [versions]
-"0.1.5" = { url = "https://github.com/SinthorasRage/Archipelago_TWW3/releases/download/Beta_0.1.5_new_options_and_fixes/tww3.apworld" }
 "0.10.19" = {}
