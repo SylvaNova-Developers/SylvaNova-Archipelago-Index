@@ -4,3 +4,4 @@ default_url = "https://github.com/jordansds/Archipelago_TWW3_Alt/releases/downlo
 
 [versions]
 "0.10.19" = {}
+"0.11.0" = {}
