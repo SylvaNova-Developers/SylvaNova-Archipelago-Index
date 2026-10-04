@@ -1,6 +1,6 @@
 name = "Plants vs. Zombies"
 display_name = "Plants vs. Zombies Replanted and GOTY"
-home = "https://discord.com/channels/731205301247803413/1437352496455483413"
+home = "https://github.com/dannybonz/replanted_archipelago"
 default_url = "https://github.com/dannybonz/replanted_archipelago/releases/download/v{{version}}/pvzr.apworld"
 
 [versions]
@@ -9,3 +9,4 @@ default_url = "https://github.com/dannybonz/replanted_archipelago/releases/downl
 "1.7.2" = {}
 "1.8.0" = {}
 "1.9.1" = {}
+"1.10.1" = {}
