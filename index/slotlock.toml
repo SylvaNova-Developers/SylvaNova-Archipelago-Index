@@ -4,3 +4,4 @@ default_url = "https://github.com/gjgfuj/SlotLock/releases/download/slotlockv{{v
 [versions]
 "0.10.4" = {}
 "0.11.0" = {}
+"0.11.1" = {}
