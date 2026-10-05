@@ -7,3 +7,4 @@ default_url = "https://github.com/Matt41321/Archipelago/releases/download/v{{ver
 "0.3.3" = { url = "https://github.com/GamingInfinite/Archipelago/releases/download/0.3.3.0/bloonstd6.apworld" }
 "0.7.1" = {}
 "0.8.1" = {}
+"0.8.2" = {}

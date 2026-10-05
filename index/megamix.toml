@@ -5,3 +5,4 @@ default_url = "https://github.com/Cynichill/DivaAPworld/releases/download/{{vers
 [versions]
 "1.5.1" = {}
 "1.5.2" = {}
+"1.5.3" = {}
