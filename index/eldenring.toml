@@ -5,4 +5,4 @@ default_url = "https://git.peliarch.ca/alaric/er-archipelago-public/releases/dow
 [versions]
 "1.0.1" = {}
 "1.0.2" = {}
-"1.0.2.1" = {}
+"1.0.2+1" = { url = "https://git.peliarch.ca/alaric/er-archipelago-public/releases/download/v1.0.2.1/eldenring.apworld" }
