@@ -1,8 +1,3 @@
 name = "Elden Ring"
 home = "https://git.peliarch.ca/alaric/er-archipelago-public"
-default_url = "https://git.peliarch.ca/alaric/er-archipelago-public/releases/download/v{{version}}/eldenring.apworld"
-
-[versions]
-"1.0.1" = {}
-"1.0.2" = {}
-"1.0.2+1" = { url = "https://git.peliarch.ca/alaric/er-archipelago-public/releases/download/v1.0.2.1/eldenring.apworld" }
+disabled = true # Legacy 0.6.x GitHub release URLs are gone; Peliarch 1.x apworlds need deps CI does not install (pyevermizer, zilliandomizer) and failed fuzz when indexed here.
