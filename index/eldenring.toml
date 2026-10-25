@@ -1,8 +1,8 @@
 name = "Elden Ring"
-home = "https://github.com/4laric/er-archipelago"
-default_url = "https://github.com/4laric/er-archipelago/releases/download/v{{version}}/eldenring.apworld"
+home = "https://git.peliarch.ca/alaric/er-archipelago-public"
+default_url = "https://git.peliarch.ca/alaric/er-archipelago-public/releases/download/v{{version}}/eldenring.apworld"
 
 [versions]
-"0.6.1" = {}
-"0.6.4" = {}
-"0.6.5" = {}
+"1.0.1" = {}
+"1.0.2" = {}
+"1.0.2.1" = {}
