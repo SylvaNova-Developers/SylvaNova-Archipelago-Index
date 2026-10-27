@@ -1,0 +1,6 @@
+name = "Kirby Super Star Ultra"
+home = "https://github.com/GhostCappy/Archipelago"
+default_url = "https://github.com/GhostCappy/Archipelago/releases/download/kssu-v{{version}}/kssu.apworld"
+
+[versions]
+"0.2.1" = {}
