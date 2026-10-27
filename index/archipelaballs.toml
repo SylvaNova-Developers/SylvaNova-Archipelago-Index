@@ -1,0 +1,6 @@
+name = "Archipelaballs"
+home = "https://github.com/StellatedCUBE/Archipelaballs"
+default_url = "https://github.com/StellatedCUBE/Archipelaballs/releases/download/v{{version}}/archipelaballs.apworld"
+
+[versions]
+"1.0.1" = {}
