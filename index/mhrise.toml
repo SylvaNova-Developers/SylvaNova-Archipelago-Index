@@ -1,0 +1,6 @@
+name = "Monster Hunter Rise"
+home = "https://github.com/LittleLudroth/MHRise-APWorld"
+default_url = "https://github.com/LittleLudroth/MHRise-APWorld/releases/download/v{{version}}/mhrise.apworld"
+
+[versions]
+"0.5.2" = {}
