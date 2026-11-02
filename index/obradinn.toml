@@ -1,0 +1,7 @@
+name = "obradinn"
+display_name = "Turnip Boy Commits Tax Evasion"
+home = "https://discord.com/channels/1085716850370957462/1259857920808714331"
+default_url = "https://gitlab.com/obra-dinn-archipelago/world/-/releases/v{{version}}/downloads/obradinn.apworld"
+
+[versions]
+"0.5.0" = {}
