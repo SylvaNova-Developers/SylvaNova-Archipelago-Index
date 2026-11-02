@@ -1,4 +1,4 @@
-name = "obradinn"
+name = "Return of the Obra Dinn"
 display_name = "Return of the Obra Dinn"
 home = "https://discord.com/channels/1085716850370957462/1259857920808714331"
 default_url = "https://gitlab.com/obra-dinn-archipelago/world/-/releases/v{{version}}/downloads/obradinn.apworld"
