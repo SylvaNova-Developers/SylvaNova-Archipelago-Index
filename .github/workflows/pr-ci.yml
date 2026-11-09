@@ -70,6 +70,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: CI script unit tests
+        run: |
+          set -euo pipefail
+          pip install packaging
+          cd scripts/ci
+          python3 -m unittest test_discover_new_versions.py -v
+
       - name: Validate changed world TOMLs
         if: needs.discover.outputs.has_worlds == 'true'
         env:
