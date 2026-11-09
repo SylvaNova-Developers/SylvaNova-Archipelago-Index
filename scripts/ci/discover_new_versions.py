@@ -367,20 +367,12 @@ def main() -> int:
         if not isinstance(versions, dict):
             print(f"warn: {world_id}: missing [versions]; skipping", file=sys.stderr)
             continue
-        try:
-            candidates = collect_candidates(
-                parsed_url,
-                versions,
-                token,
-                check_urls=not args.skip_url_check,
-            )
-        except GithubApiHttpError as exc:
-            print(
-                f"warn: {world_id}: GitHub API HTTP {exc.status} for "
-                f"{parsed_url.owner}/{parsed_url.repo}; skipping",
-                file=sys.stderr,
-            )
-            continue
+        candidates = collect_candidates(
+            parsed_url,
+            versions,
+            token,
+            check_urls=not args.skip_url_check,
+        )
         if not candidates:
             print(f"{world_id}: no newer versions ({reason})")
             continue

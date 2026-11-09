@@ -10,7 +10,12 @@ import unittest
 from contextlib import redirect_stderr
 from unittest import mock
 
-from discover_new_versions import GithubApiHttpError, list_releases
+from discover_new_versions import (
+    GithubApiHttpError,
+    GithubDefaultUrl,
+    list_releases,
+    main,
+)
 
 
 class ListReleasesTests(unittest.TestCase):
@@ -62,6 +67,61 @@ class ListReleasesTests(unittest.TestCase):
         ):
             result = list_releases("owner", "repo", None)
         self.assertEqual(len(result), 1)
+
+
+class MainGithubApiTests(unittest.TestCase):
+    _parsed = GithubDefaultUrl(
+        owner="o",
+        repo="r",
+        tag_template="{{version}}",
+        asset="world.apworld",
+        raw="https://github.com/o/r/releases/download/{{version}}/world.apworld",
+    )
+    _eligible = [
+        (
+            "testworld",
+            __import__("pathlib").Path("index/testworld.toml"),
+            {"versions": {"1.0.0": {}}},
+            _parsed,
+            "fork-only",
+        )
+    ]
+
+    def test_main_exits_nonzero_on_403(self) -> None:
+        with (
+            mock.patch(
+                "discover_new_versions.discover_eligible",
+                return_value=self._eligible,
+            ),
+            mock.patch(
+                "discover_new_versions.collect_candidates",
+                side_effect=GithubApiHttpError(403, "https://api.github.com/repos/o/r/releases"),
+            ),
+            mock.patch(
+                "sys.argv",
+                ["discover_new_versions.py", "--dry-run", "--skip-url-check"],
+            ),
+        ):
+            with self.assertRaises(GithubApiHttpError):
+                main()
+
+    def test_main_completes_when_list_releases_gets_404(self) -> None:
+        with (
+            mock.patch(
+                "discover_new_versions.discover_eligible",
+                return_value=self._eligible,
+            ),
+            mock.patch(
+                "discover_new_versions.collect_candidates",
+                return_value=[],
+            ),
+            mock.patch("discover_new_versions.append_versions"),
+            mock.patch(
+                "sys.argv",
+                ["discover_new_versions.py", "--dry-run", "--skip-url-check"],
+            ),
+        ):
+            self.assertEqual(main(), 0)
 
 
 if __name__ == "__main__":

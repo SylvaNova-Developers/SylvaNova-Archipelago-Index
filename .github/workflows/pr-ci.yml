@@ -327,7 +327,17 @@ jobs:
           # Repo often has allow_auto_merge=false, so merge directly once
           # required checks succeeded in this workflow. Always pass --repo so
           # gh does not need a local .git checkout.
+          merge_commit=false
           if [ "$HEAD_REF" = "bot/sync-upstream" ]; then
+            merge_commit=true
+          elif [[ "$HEAD_REF" == chou/* ]]; then
+            case "$HEAD_REF" in
+              chou/*sync*|chou/*upstream*|chou/*merge*)
+                merge_commit=true
+                ;;
+            esac
+          fi
+          if [ "$merge_commit" = true ]; then
             if gh pr merge "$PR" --repo "$REPO" --merge --delete-branch; then
               echo "Merge-committed PR #$PR"
               exit 0
