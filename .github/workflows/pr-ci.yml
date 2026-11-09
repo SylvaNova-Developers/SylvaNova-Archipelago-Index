@@ -306,6 +306,7 @@ jobs:
       && needs.validate.result == 'success'
       && needs.fuzz-ok.result == 'success'
       && github.event.pull_request.draft == false
+      && github.head_ref != 'chou/fix-sync-and-discover-f042'
       && (needs.discover.outputs.has_worlds == 'true'
           || github.head_ref == 'bot/update-index-lock'
           || github.head_ref == 'bot/sync-upstream'
@@ -324,20 +325,14 @@ jobs:
             echo "No pull_request number (not a PR event); skipping auto-merge"
             exit 0
           fi
+          if [ "$HEAD_REF" = "chou/fix-sync-and-discover-f042" ]; then
+            echo "Held for manual merge-commit after owner approval; skipping auto-merge"
+            exit 0
+          fi
           # Repo often has allow_auto_merge=false, so merge directly once
           # required checks succeeded in this workflow. Always pass --repo so
           # gh does not need a local .git checkout.
-          merge_commit=false
           if [ "$HEAD_REF" = "bot/sync-upstream" ]; then
-            merge_commit=true
-          elif [[ "$HEAD_REF" == chou/* ]]; then
-            case "$HEAD_REF" in
-              chou/*sync*|chou/*upstream*|chou/*merge*)
-                merge_commit=true
-                ;;
-            esac
-          fi
-          if [ "$merge_commit" = true ]; then
             if gh pr merge "$PR" --repo "$REPO" --merge --delete-branch; then
               echo "Merge-committed PR #$PR"
               exit 0
