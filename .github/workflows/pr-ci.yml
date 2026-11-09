@@ -38,6 +38,7 @@ jobs:
     outputs:
       worlds: ${{ steps.list.outputs.worlds }}
       has_worlds: ${{ steps.list.outputs.has_worlds }}
+      fuzz_shards: ${{ steps.list.outputs.fuzz_shards }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,8 +57,20 @@ jobs:
           echo "worlds=$worlds" >> "$GITHUB_OUTPUT"
           if [ "$worlds" = "[]" ]; then
             echo "has_worlds=false" >> "$GITHUB_OUTPUT"
+            echo "fuzz_shards=[]" >> "$GITHUB_OUTPUT"
           else
             echo "has_worlds=true" >> "$GITHUB_OUTPUT"
+            fuzz_shards=$(python3 scripts/ci/fuzz_shard.py --worlds-json "$worlds" --shards-json)
+            echo "fuzz_shards=$fuzz_shards" >> "$GITHUB_OUTPUT"
+            world_n=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$worlds")
+            shard_n=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$fuzz_shards")
+            variant_n=11
+            matrix_jobs=$((shard_n * variant_n))
+            echo "Fuzz matrix: worlds=$world_n shards=$shard_n variants=$variant_n jobs=$matrix_jobs (GitHub limit 256)"
+            if [ "$matrix_jobs" -gt 256 ]; then
+              echo "::error::Fuzz matrix would exceed GitHub's 256 job limit ($matrix_jobs)" >&2
+              exit 1
+            fi
           fi
           echo "Changed worlds: $worlds"
 
@@ -75,7 +88,7 @@ jobs:
           set -euo pipefail
           pip install packaging
           cd scripts/ci
-          python3 -m unittest test_discover_new_versions.py -v
+          python3 -m unittest test_discover_new_versions.py test_fuzz_shard.py -v
 
       - name: Validate changed world TOMLs
         if: needs.discover.outputs.has_worlds == 'true'
@@ -158,7 +171,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        world: ${{ fromJson(needs.discover.outputs.worlds) }}
+        shard: ${{ fromJson(needs.discover.outputs.fuzz_shards) }}
         variant:
           - baseline
           - no-restrictive-starts
@@ -183,23 +196,22 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run fuzz variant
+      - name: Run fuzz shard
         env:
-          APWORLD_NAME: ${{ matrix.world }}
+          WORLDS_JSON: ${{ needs.discover.outputs.worlds }}
+          SHARD: ${{ matrix.shard }}
           VARIANT: ${{ matrix.variant }}
           INDEX_ROOT: ${{ github.workspace }}
           FUZZ_RUNS_FULL: "1000"
           FUZZ_RUNS_CHECK: "500"
-        run: |
-          chmod +x scripts/ci/*.sh
-          scripts/ci/run_fuzz_variant.sh
+        run: scripts/ci/run_fuzz_shard.sh
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-${{ matrix.world }}-${{ matrix.variant }}
-          path: fuzz-report-${{ matrix.world }}-${{ matrix.variant }}.json
+          name: fuzz-shard-${{ matrix.shard }}-${{ matrix.variant }}
+          path: fuzz-report-*.json
           if-no-files-found: ignore
 
   fuzz-ok:
@@ -252,6 +264,9 @@ jobs:
           fi
           echo "failed=true" >> "$GITHUB_OUTPUT"
           echo "fuzz matrix failed (result=$result)" >&2
+          if [ "$result" = "failure" ] && [ "$has" = "true" ]; then
+            echo "::error::fuzz job failed before or during matrix (e.g. worlds×variants > 256); see discover job matrix size log and fuzz shards" >&2
+          fi
           exit 1
 
   fuzz-review:
