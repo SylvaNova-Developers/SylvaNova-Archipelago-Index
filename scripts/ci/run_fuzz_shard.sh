@@ -24,10 +24,19 @@ if [ "${#WORLDS[@]}" -eq 0 ]; then
 fi
 
 chmod +x "$SCRIPT_DIR"/*.sh
+shard_failures=0
 for world in "${WORLDS[@]}"; do
   echo "=== shard=$SHARD variant=$VARIANT world=$world ==="
   export APWORLD_NAME="$world"
   export VARIANT
   export INDEX_ROOT
-  "$SCRIPT_DIR/run_fuzz_variant.sh"
+  if ! "$SCRIPT_DIR/run_fuzz_variant.sh"; then
+    shard_failures=$((shard_failures + 1))
+    echo "::error::shard=$SHARD variant=$VARIANT world=$world fuzz failed" >&2
+  fi
 done
+
+if [ "$shard_failures" -gt 0 ]; then
+  echo "::error::shard=$SHARD variant=$VARIANT: $shard_failures of ${#WORLDS[@]} world(s) failed" >&2
+  exit 1
+fi

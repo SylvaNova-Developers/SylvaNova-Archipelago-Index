@@ -38,7 +38,9 @@ jobs:
     outputs:
       worlds: ${{ steps.list.outputs.worlds }}
       has_worlds: ${{ steps.list.outputs.has_worlds }}
+      fuzz_worlds: ${{ steps.list.outputs.fuzz_worlds }}
       fuzz_shards: ${{ steps.list.outputs.fuzz_shards }}
+      has_fuzz_worlds: ${{ steps.list.outputs.has_fuzz_worlds }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,19 +59,36 @@ jobs:
           echo "worlds=$worlds" >> "$GITHUB_OUTPUT"
           if [ "$worlds" = "[]" ]; then
             echo "has_worlds=false" >> "$GITHUB_OUTPUT"
+            echo "fuzz_worlds=[]" >> "$GITHUB_OUTPUT"
             echo "fuzz_shards=[]" >> "$GITHUB_OUTPUT"
+            echo "has_fuzz_worlds=false" >> "$GITHUB_OUTPUT"
           else
             echo "has_worlds=true" >> "$GITHUB_OUTPUT"
-            fuzz_shards=$(python3 scripts/ci/fuzz_shard.py --worlds-json "$worlds" --shards-json)
-            echo "fuzz_shards=$fuzz_shards" >> "$GITHUB_OUTPUT"
-            world_n=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$worlds")
-            shard_n=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$fuzz_shards")
-            variant_n=11
-            matrix_jobs=$((shard_n * variant_n))
-            echo "Fuzz matrix: worlds=$world_n shards=$shard_n variants=$variant_n jobs=$matrix_jobs (GitHub limit 256)"
-            if [ "$matrix_jobs" -gt 256 ]; then
-              echo "::error::Fuzz matrix would exceed GitHub's 256 job limit ($matrix_jobs)" >&2
-              exit 1
+            fuzz_worlds=$(
+              python3 scripts/ci/fuzz_eligible_worlds.py \
+                --index-dir index \
+                --worlds-json "$worlds" \
+                --json-array 2> >(tee /tmp/fuzz-skip.log >&2)
+            )
+            echo "fuzz_worlds=$fuzz_worlds" >> "$GITHUB_OUTPUT"
+            if [ "$fuzz_worlds" = "[]" ]; then
+              echo "has_fuzz_worlds=false" >> "$GITHUB_OUTPUT"
+              echo "fuzz_shards=[]" >> "$GITHUB_OUTPUT"
+              echo "Fuzz matrix: 0 eligible worlds after filtering (see /tmp/fuzz-skip.log)"
+            else
+              echo "has_fuzz_worlds=true" >> "$GITHUB_OUTPUT"
+              fuzz_shards=$(python3 scripts/ci/fuzz_shard.py --worlds-json "$fuzz_worlds" --shards-json)
+              echo "fuzz_shards=$fuzz_shards" >> "$GITHUB_OUTPUT"
+              world_n=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$worlds")
+              fuzz_n=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$fuzz_worlds")
+              shard_n=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$fuzz_shards")
+              variant_n=11
+              matrix_jobs=$((shard_n * variant_n))
+              echo "Fuzz matrix: changed=$world_n fuzz_eligible=$fuzz_n shards=$shard_n variants=$variant_n jobs=$matrix_jobs (GitHub limit 256)"
+              if [ "$matrix_jobs" -gt 256 ]; then
+                echo "::error::Fuzz matrix would exceed GitHub's 256 job limit ($matrix_jobs)" >&2
+                exit 1
+              fi
             fi
           fi
           echo "Changed worlds: $worlds"
@@ -88,7 +107,8 @@ jobs:
           set -euo pipefail
           pip install packaging
           cd scripts/ci
-          python3 -m unittest test_discover_new_versions.py test_fuzz_shard.py -v
+          python3 -m unittest test_discover_new_versions.py test_fuzz_shard.py test_fuzz_eligible_worlds.py -v
+          bash test_run_fuzz_shard_aggregate.sh
 
       - name: Validate changed world TOMLs
         if: needs.discover.outputs.has_worlds == 'true'
@@ -160,7 +180,7 @@ jobs:
     # Skip fuzz for automation bot branches (trust quarantine + validate;
     # full matrix on large sync/version diffs freezes the pipeline).
     if: |
-      needs.discover.outputs.has_worlds == 'true'
+      needs.discover.outputs.has_fuzz_worlds == 'true'
       && github.head_ref != 'bot/sync-upstream'
       && github.ref_name != 'bot/sync-upstream'
       && github.head_ref != 'bot/update-world-versions'
@@ -198,7 +218,7 @@ jobs:
 
       - name: Run fuzz shard
         env:
-          WORLDS_JSON: ${{ needs.discover.outputs.worlds }}
+          WORLDS_JSON: ${{ needs.discover.outputs.fuzz_worlds }}
           SHARD: ${{ matrix.shard }}
           VARIANT: ${{ matrix.variant }}
           INDEX_ROOT: ${{ github.workspace }}
