@@ -54,6 +54,15 @@ class CandidateVersion:
     uses_default_url: bool
 
 
+class GithubApiHttpError(RuntimeError):
+    """GitHub REST API returned a non-success HTTP status."""
+
+    def __init__(self, status: int, url: str) -> None:
+        self.status = status
+        self.url = url
+        super().__init__(f"GitHub API HTTP {status} for {url}")
+
+
 def load_toml(path: Path) -> dict | None:
     try:
         return tomllib.loads(path.read_text(encoding="utf-8"))
@@ -147,8 +156,11 @@ def github_api_get(url: str, token: str | None) -> object:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, headers=headers, method="GET")
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise GithubApiHttpError(exc.code, url) from exc
 
 
 def list_releases(owner: str, repo: str, token: str | None) -> list[dict]:
@@ -157,7 +169,24 @@ def list_releases(owner: str, repo: str, token: str | None) -> list[dict]:
     while True:
         query = urllib.parse.urlencode({"per_page": 100, "page": page})
         url = f"https://api.github.com/repos/{owner}/{repo}/releases?{query}"
-        payload = github_api_get(url, token)
+        try:
+            payload = github_api_get(url, token)
+        except GithubApiHttpError as exc:
+            if exc.status == 404:
+                print(
+                    f"warn: GitHub releases not found for {owner}/{repo} "
+                    f"(HTTP 404); skipping release discovery",
+                    file=sys.stderr,
+                )
+                return []
+            if exc.status in (401, 403, 429) or exc.status >= 500:
+                raise
+            print(
+                f"warn: GitHub API HTTP {exc.status} for {owner}/{repo}; "
+                "skipping release discovery",
+                file=sys.stderr,
+            )
+            return []
         if not isinstance(payload, list) or not payload:
             break
         releases.extend(payload)

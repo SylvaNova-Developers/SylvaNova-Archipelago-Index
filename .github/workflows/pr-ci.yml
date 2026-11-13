@@ -38,6 +38,9 @@ jobs:
     outputs:
       worlds: ${{ steps.list.outputs.worlds }}
       has_worlds: ${{ steps.list.outputs.has_worlds }}
+      fuzz_worlds: ${{ steps.list.outputs.fuzz_worlds }}
+      fuzz_shards: ${{ steps.list.outputs.fuzz_shards }}
+      has_fuzz_worlds: ${{ steps.list.outputs.has_fuzz_worlds }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,8 +59,37 @@ jobs:
           echo "worlds=$worlds" >> "$GITHUB_OUTPUT"
           if [ "$worlds" = "[]" ]; then
             echo "has_worlds=false" >> "$GITHUB_OUTPUT"
+            echo "fuzz_worlds=[]" >> "$GITHUB_OUTPUT"
+            echo "fuzz_shards=[]" >> "$GITHUB_OUTPUT"
+            echo "has_fuzz_worlds=false" >> "$GITHUB_OUTPUT"
           else
             echo "has_worlds=true" >> "$GITHUB_OUTPUT"
+            fuzz_worlds=$(
+              python3 scripts/ci/fuzz_eligible_worlds.py \
+                --index-dir index \
+                --worlds-json "$worlds" \
+                --json-array 2> >(tee /tmp/fuzz-skip.log >&2)
+            )
+            echo "fuzz_worlds=$fuzz_worlds" >> "$GITHUB_OUTPUT"
+            if [ "$fuzz_worlds" = "[]" ]; then
+              echo "has_fuzz_worlds=false" >> "$GITHUB_OUTPUT"
+              echo "fuzz_shards=[]" >> "$GITHUB_OUTPUT"
+              echo "Fuzz matrix: 0 eligible worlds after filtering (see /tmp/fuzz-skip.log)"
+            else
+              echo "has_fuzz_worlds=true" >> "$GITHUB_OUTPUT"
+              fuzz_shards=$(python3 scripts/ci/fuzz_shard.py --worlds-json "$fuzz_worlds" --shards-json)
+              echo "fuzz_shards=$fuzz_shards" >> "$GITHUB_OUTPUT"
+              world_n=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$worlds")
+              fuzz_n=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$fuzz_worlds")
+              shard_n=$(python3 -c "import json,sys; print(len(json.loads(sys.argv[1])))" "$fuzz_shards")
+              variant_n=11
+              matrix_jobs=$((shard_n * variant_n))
+              echo "Fuzz matrix: changed=$world_n fuzz_eligible=$fuzz_n shards=$shard_n variants=$variant_n jobs=$matrix_jobs (GitHub limit 256)"
+              if [ "$matrix_jobs" -gt 256 ]; then
+                echo "::error::Fuzz matrix would exceed GitHub's 256 job limit ($matrix_jobs)" >&2
+                exit 1
+              fi
+            fi
           fi
           echo "Changed worlds: $worlds"
 
@@ -69,6 +101,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: CI script unit tests
+        run: |
+          set -euo pipefail
+          pip install packaging
+          cd scripts/ci
+          python3 -m unittest test_discover_new_versions.py test_fuzz_shard.py test_fuzz_eligible_worlds.py -v
+          bash test_run_fuzz_shard_aggregate.sh
 
       - name: Validate changed world TOMLs
         if: needs.discover.outputs.has_worlds == 'true'
@@ -140,7 +180,7 @@ jobs:
     # Skip fuzz for automation bot branches (trust quarantine + validate;
     # full matrix on large sync/version diffs freezes the pipeline).
     if: |
-      needs.discover.outputs.has_worlds == 'true'
+      needs.discover.outputs.has_fuzz_worlds == 'true'
       && github.head_ref != 'bot/sync-upstream'
       && github.ref_name != 'bot/sync-upstream'
       && github.head_ref != 'bot/update-world-versions'
@@ -151,7 +191,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        world: ${{ fromJson(needs.discover.outputs.worlds) }}
+        shard: ${{ fromJson(needs.discover.outputs.fuzz_shards) }}
         variant:
           - baseline
           - no-restrictive-starts
@@ -176,23 +216,22 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run fuzz variant
+      - name: Run fuzz shard
         env:
-          APWORLD_NAME: ${{ matrix.world }}
+          WORLDS_JSON: ${{ needs.discover.outputs.fuzz_worlds }}
+          SHARD: ${{ matrix.shard }}
           VARIANT: ${{ matrix.variant }}
           INDEX_ROOT: ${{ github.workspace }}
           FUZZ_RUNS_FULL: "1000"
           FUZZ_RUNS_CHECK: "500"
-        run: |
-          chmod +x scripts/ci/*.sh
-          scripts/ci/run_fuzz_variant.sh
+        run: scripts/ci/run_fuzz_shard.sh
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-${{ matrix.world }}-${{ matrix.variant }}
-          path: fuzz-report-${{ matrix.world }}-${{ matrix.variant }}.json
+          name: fuzz-shard-${{ matrix.shard }}-${{ matrix.variant }}
+          path: fuzz-report-*.json
           if-no-files-found: ignore
 
   fuzz-ok:
@@ -245,6 +284,9 @@ jobs:
           fi
           echo "failed=true" >> "$GITHUB_OUTPUT"
           echo "fuzz matrix failed (result=$result)" >&2
+          if [ "$result" = "failure" ] && [ "$has" = "true" ]; then
+            echo "::error::fuzz job failed before or during matrix (e.g. worlds×variants > 256); see discover job matrix size log and fuzz shards" >&2
+          fi
           exit 1
 
   fuzz-review:
@@ -299,6 +341,7 @@ jobs:
       && needs.validate.result == 'success'
       && needs.fuzz-ok.result == 'success'
       && github.event.pull_request.draft == false
+      && github.head_ref != 'chou/fix-sync-and-discover-f042'
       && (needs.discover.outputs.has_worlds == 'true'
           || github.head_ref == 'bot/update-index-lock'
           || github.head_ref == 'bot/sync-upstream'
@@ -315,6 +358,10 @@ jobs:
           set -euo pipefail
           if [ -z "${PR:-}" ]; then
             echo "No pull_request number (not a PR event); skipping auto-merge"
+            exit 0
+          fi
+          if [ "$HEAD_REF" = "chou/fix-sync-and-discover-f042" ]; then
+            echo "Held for manual merge-commit after owner approval; skipping auto-merge"
             exit 0
           fi
           # Repo often has allow_auto_merge=false, so merge directly once
