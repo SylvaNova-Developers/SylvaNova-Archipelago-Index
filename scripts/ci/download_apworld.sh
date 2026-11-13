@@ -17,7 +17,9 @@ mkdir -p "$DEST"
 
 python3 - "$TOML" "$NAME" "$DEST" <<'PY'
 import sys
+import time
 import tomllib
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -55,6 +57,33 @@ else:
 
 out = dest / f"{name}.apworld"
 print(f"Downloading {name}@{latest} from {url}")
-urllib.request.urlretrieve(url, out)
+last_exc: BaseException | None = None
+for attempt in range(5):
+    try:
+        urllib.request.urlretrieve(url, out)
+        last_exc = None
+        break
+    except urllib.error.HTTPError as exc:
+        last_exc = exc
+        if exc.code in (408, 429, 500, 502, 503, 504) and attempt < 4:
+            delay = 2**attempt
+            print(
+                f"warn: HTTP {exc.code} for {url}; retry in {delay}s "
+                f"({attempt + 1}/5)",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+            continue
+        raise
+    except urllib.error.URLError as exc:
+        last_exc = exc
+        if attempt < 4:
+            delay = 2**attempt
+            print(f"warn: URL error for {url}; retry in {delay}s", file=sys.stderr)
+            time.sleep(delay)
+            continue
+        raise
+if last_exc is not None:
+    raise last_exc
 print(f"Wrote {out} ({out.stat().st_size} bytes)")
 PY

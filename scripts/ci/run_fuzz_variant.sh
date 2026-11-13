@@ -154,6 +154,12 @@ if [[ -f "/tmp/apworld-download/${APWORLD_NAME}.apworld" ]]; then
   fi
   # Also disable any other non-zip world dirs that might collide (hidden by leading dot).
   cp -f "/tmp/apworld-download/${APWORLD_NAME}.apworld" "worlds/${APWORLD_NAME}.apworld"
+  if [[ "$APWORLD_NAME" == "chibi_robo" ]]; then
+    # Chibi-Robo apworld imports dolphin_memory_engine at load time.
+    pip install -q dolphin-memory-engine 2>/dev/null \
+      || pip install -q dolphin_memory_engine 2>/dev/null \
+      || echo "warn: dolphin-memory-engine install failed for chibi_robo" >&2
+  fi
 elif [[ -d "worlds/${APWORLD_NAME}" && -f "worlds/${APWORLD_NAME}/__init__.py" ]]; then
   echo "Using built-in Archipelago world: ${APWORLD_NAME}" >&2
 else
