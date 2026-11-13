@@ -1,0 +1,6 @@
+name = "Manual_PLA_Miro"
+display_name = "Manual: PLA"
+home = "https://github.com/Miro-n1/archipelago_manuals"
+
+[versions]
+"1.0.0" = { url = "https://github.com/Miro-n1/archipelago_manuals/releases/download/PLA_1.06/manual_PLA_miro.apworld" }
