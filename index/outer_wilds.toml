@@ -1,22 +1,23 @@
 name = "Outer Wilds"
-home = "https://discord.com/channels/731205301247803413/1462820272012005489"
-default_url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v{{version}}/outer_wilds.apworld"
+home = "https://github.com/IxrecsRandomizers/OuterWildsArchipelagoRandomizer"
+default_url = "https://github.com/IxrecsRandomizers/OuterWildsArchipelagoRandomizer/releases/download/v{{version}}/outer_wilds.apworld"
 
 [versions]
-"0.3.6" = {}
-"0.3.9" = {}
-"0.3.11" = {}
-"0.3.12" = {}
-"0.3.13" = {}
-"0.3.14" = {}
-"0.3.15" = {}
-"0.3.16" = {}
-"0.3.17" = {}
-"0.3.18" = {}
-"0.3.19" = {}
-"1.0.1" = {}
-"1.1.0" = {}
-"1.2.0" = {}
-"1.2.1" = {}
-"1.2.2" = {}
-"1.3.0" = {}
+"0.3.6" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.6/outer_wilds.apworld" }
+"0.3.9" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.9/outer_wilds.apworld" }
+"0.3.11" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.11/outer_wilds.apworld" }
+"0.3.12" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.12/outer_wilds.apworld" }
+"0.3.13" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.13/outer_wilds.apworld" }
+"0.3.14" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.14/outer_wilds.apworld" }
+"0.3.15" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.15/outer_wilds.apworld" }
+"0.3.16" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.16/outer_wilds.apworld" }
+"0.3.17" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.17/outer_wilds.apworld" }
+"0.3.18" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.18/outer_wilds.apworld" }
+"0.3.19" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v0.3.19/outer_wilds.apworld" }
+"1.0.1" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v1.0.1/outer_wilds.apworld" }
+"1.1.0" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v1.1.0/outer_wilds.apworld" }
+"1.2.0" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v1.2.0/outer_wilds.apworld" }
+"1.2.1" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v1.2.1/outer_wilds.apworld" }
+"1.2.2" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v1.2.2/outer_wilds.apworld" }
+"1.3.0" = { url = "https://github.com/Ixrec/OuterWildsArchipelagoRandomizer/releases/download/v1.3.0/outer_wilds.apworld" }
+"1.4.1" = {}
