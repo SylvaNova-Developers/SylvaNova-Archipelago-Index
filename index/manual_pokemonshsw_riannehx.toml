@@ -1,0 +1,7 @@
+name = "Manual_pokemonshsw_Riannehx"
+display_name = "Manual: pokemonshsw"
+home = "https://github.com/willekeh/Manual"
+default_url = "https://github.com/willekeh/Manual/releases/download/PSWSH{{version}}/manual_pokemonshsw_riannehx.apworld"
+
+[versions]
+"0.0.7" = {}
