@@ -72,6 +72,13 @@ else
   source .venv/bin/activate
 fi
 
+# Some built-in worlds import optional deps at load time; missing deps spam CI logs.
+for optional_world in soe zillion; do
+  if [[ -f "worlds/${optional_world}/requirements.txt" ]]; then
+    pip install -q -r "worlds/${optional_world}/requirements.txt" || true
+  fi
+done
+
 # Archipelago's ModuleUpdate prompts on stdin when pins drift; that deadlocks CI
 # workers (EOFError). Install deps above, then skip further interactive updates.
 export SKIP_REQUIREMENTS_UPDATE=1
@@ -143,17 +150,25 @@ fi
 rm -f worlds/empty.apworld
 
 # Place the world under test.
+FUZZ_GAME="$APWORLD_NAME"
 bash "$INDEX_ROOT/scripts/ci/download_apworld.sh" "$INDEX_ROOT" "$APWORLD_NAME" /tmp/apworld-download
 if [[ -f "/tmp/apworld-download/${APWORLD_NAME}.apworld" ]]; then
+  DOWNLOADED="/tmp/apworld-download/${APWORLD_NAME}.apworld"
+  PACKAGE_STEM="$("$PYTHON_BIN" "$INDEX_ROOT/scripts/ci/apworld_package_stem.py" \
+    "$DOWNLOADED" --fallback-stem "$APWORLD_NAME")"
+  FUZZ_GAME="$PACKAGE_STEM"
+  echo "Installing apworld as worlds/${PACKAGE_STEM}.apworld (index id=${APWORLD_NAME})" >&2
   # Custom/index apworlds must win over built-in worlds/ with the same game name.
   # Otherwise AP logs: "Did not load X.apworld as its game ... is already loaded"
   # and we fuzz the wrong (core) implementation.
-  if [[ -d "worlds/${APWORLD_NAME}" ]]; then
-    echo "Removing built-in worlds/${APWORLD_NAME} so index apworld is loaded" >&2
-    rm -rf "worlds/${APWORLD_NAME}"
-  fi
-  # Also disable any other non-zip world dirs that might collide (hidden by leading dot).
-  cp -f "/tmp/apworld-download/${APWORLD_NAME}.apworld" "worlds/${APWORLD_NAME}.apworld"
+  for collide in "$APWORLD_NAME" "$PACKAGE_STEM"; do
+    if [[ -d "worlds/${collide}" ]]; then
+      echo "Removing built-in worlds/${collide} so index apworld is loaded" >&2
+      rm -rf "worlds/${collide}"
+    fi
+    rm -f "worlds/${collide}.apworld"
+  done
+  cp -f "$DOWNLOADED" "worlds/${PACKAGE_STEM}.apworld"
 elif [[ -d "worlds/${APWORLD_NAME}" && -f "worlds/${APWORLD_NAME}/__init__.py" ]]; then
   echo "Using built-in Archipelago world: ${APWORLD_NAME}" >&2
 else
@@ -239,9 +254,9 @@ if [[ ${#EXTRA_ARGS[@]} -eq 0 ]]; then
   JOBS_ARGS=(-t 10 -j "$(nproc)")
 fi
 
-echo "Starting fuzz: variant=$VARIANT runs=$RUNS args=${JOBS_ARGS[*]:-} ${EXTRA_ARGS[*]:-}"
+echo "Starting fuzz: variant=$VARIANT game=${FUZZ_GAME} runs=$RUNS args=${JOBS_ARGS[*]:-} ${EXTRA_ARGS[*]:-}"
 set +e
-python -u fuzz.py -g "$APWORLD_NAME" -r "$RUNS" -n 1 \
+python -u fuzz.py -g "$FUZZ_GAME" -r "$RUNS" -n 1 \
   "${JOBS_ARGS[@]}" "${EXTRA_ARGS[@]}" "${META_ARGS[@]}" "${HOOK_ARGS[@]}"
 FUZZ_STATUS=$?
 set -e
