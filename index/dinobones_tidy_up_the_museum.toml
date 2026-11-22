@@ -1,0 +1,6 @@
+name = "DinoBones Tidy Up the Museum"
+home = "https://github.com/SWCreeperKing/DinoBonipelago"
+default_url = "https://github.com/SWCreeperKing/DinoBonipelago/releases/download/v{{version}}/dinobones_tidy_up_the_museum.apworld"
+
+[versions]
+"0.1.0" = {}
