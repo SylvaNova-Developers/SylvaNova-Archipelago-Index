@@ -1,0 +1,6 @@
+name = "Manual_PokemonSunMoon_Snifit"
+display_name = "Manual: PokemonSunMoon"
+home = "https://github.com/Snifit57/SunMoonAPManual"
+
+[versions]
+"0.2.0" = { url = "https://github.com/Snifit57/SunMoonAPManual/releases/download/v0.2/manual_pokemonsunmoon_snifit.apworld" }
