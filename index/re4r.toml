@@ -1,0 +1,6 @@
+name = "Resident Evil 4 Remake"
+home = "https://github.com/LiterallyMetaphorical/RE4R-AP-Wizard"
+default_url = "https://github.com/LiterallyMetaphorical/RE4R-AP-Wizard/releases/download/v{{version}}/RE4R.apworld"
+
+[versions]
+"0.6.0-beta" = {}
