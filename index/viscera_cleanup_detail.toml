@@ -1,0 +1,6 @@
+name = "Viscera Cleanup Detail"
+home = "https://github.com/Kryen112/Viscera-Cleanup-Detail-AP"
+default_url = "https://github.com/Kryen112/Viscera-Cleanup-Detail-AP/releases/download/{{version}}/viscera_cleanup_detail.apworld"
+
+[versions]
+"1.2.1" = {}
