@@ -23,7 +23,7 @@ Slash command `/request-apworld`:
 
 | Option | Required | Meaning |
 |--------|----------|---------|
-| `apworld` | yes | Apworld id (becomes `index/{apworld}.toml`) |
+| `apworld` | yes | Apworld id (becomes `index/{apworld}.toml`; must match the zip's top-level package folder, case included) |
 | `name` | yes | Game name used in YAML |
 | `url` | yes | Direct `.apworld` download URL (or a `default_url` template with `{{version}}`) |
 | `version` | yes | Semver version string |
