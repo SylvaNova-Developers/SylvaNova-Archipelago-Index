@@ -6,16 +6,20 @@ Checks:
   - required `name` field present
   - new entries do not use `local` version sources
   - version URLs (resolved via default_url when needed) are reachable (HEAD/GET)
+  - index toml stem matches the apworld zip's top-level Python package directory
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+from apworld_package_stem import package_stem_from_zip
 
 
 def resolve_url(world: dict, version: str, src: dict | None) -> str | None:
@@ -52,6 +56,26 @@ def check_url(url: str, timeout: float = 30.0) -> None:
     with urllib.request.urlopen(request, timeout=timeout) as response:
         if response.status >= 400:
             raise RuntimeError(f"HTTP {response.status} for {url}")
+
+
+def download_apworld(url: str, dest: Path, timeout: float = 120.0) -> None:
+    request = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        if response.status >= 400:
+            raise RuntimeError(f"HTTP {response.status} for {url}")
+        dest.write_bytes(response.read())
+
+
+def check_index_stem_matches_zip(index_stem: str, url: str, *, label: str) -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        apworld_path = Path(temp_dir) / "artifact.apworld"
+        download_apworld(url, apworld_path)
+        package_stem = package_stem_from_zip(apworld_path)
+    if package_stem != index_stem:
+        raise RuntimeError(
+            f"{label}: index id {index_stem!r} does not match apworld package "
+            f"directory {package_stem!r} (url {url})"
+        )
 
 
 def is_core_world(apworld_id: str, archipelago_dir: Path) -> bool:
@@ -122,6 +146,15 @@ def validate_world(
                 check_url(url)
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{path}: version {version} URL not reachable ({url}): {exc}")
+                continue
+            try:
+                check_index_stem_matches_zip(
+                    path.stem,
+                    url,
+                    label=f"{path}: version {version}",
+                )
+            except Exception as exc:  # noqa: BLE001
+                errors.append(str(exc))
 
     return errors
 
