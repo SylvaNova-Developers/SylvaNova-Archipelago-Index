@@ -1,19 +1,6 @@
 from __future__ import annotations
 
-import re
-
-
-_APWORLD_ID = re.compile(r"^[a-z0-9][a-z0-9_\-]*$")
-
-
-def validate_apworld_id(apworld: str) -> str:
-    value = apworld.strip()
-    if not _APWORLD_ID.match(value):
-        raise ValueError(
-            "apworld id must be lowercase alphanumeric with optional _/- "
-            f"(got {apworld!r})"
-        )
-    return value
+from .apworld_id import resolve_apworld_index_id
 
 
 def render_world_toml(

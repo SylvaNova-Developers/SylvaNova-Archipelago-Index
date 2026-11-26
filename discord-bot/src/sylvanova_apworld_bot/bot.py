@@ -7,7 +7,8 @@ from discord import app_commands
 
 from .config import Settings, load_settings
 from .github_pr import IndexPullRequestClient
-from .toml_template import render_world_toml, validate_apworld_id
+from .apworld_id import resolve_apworld_index_id
+from .toml_template import render_world_toml
 
 log = logging.getLogger("sylvanova_apworld_bot")
 
@@ -40,7 +41,7 @@ def build_bot(settings: Settings) -> ApworldBot:
         description="Open a PR to add an apworld to the SylvaNova index",
     )
     @app_commands.describe(
-        apworld="Apworld id (filename stem under index/)",
+        apworld="Apworld id (index/*.toml stem; must match zip package folder)",
         name="Game name used in YAML",
         url="Direct .apworld URL, or a default_url template containing {{version}}",
         version="Semver version to register",
@@ -58,7 +59,11 @@ def build_bot(settings: Settings) -> ApworldBot:
     ) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
-            apworld_id = validate_apworld_id(apworld)
+            apworld_id = resolve_apworld_index_id(
+                apworld=apworld,
+                url=url.strip(),
+                version=version.strip(),
+            )
             toml_body = render_world_toml(
                 name=name.strip(),
                 url=url.strip(),
