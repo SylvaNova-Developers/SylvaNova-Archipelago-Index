@@ -1,0 +1,6 @@
+name = "Dragon Ball Z - Attack of the Saiyans"
+home = "https://github.com/Aure33/DragonBallZAttackoftheSaiyans-Archipelago"
+default_url = "https://github.com/Aure33/DragonBallZAttackoftheSaiyans-Archipelago/releases/download/v{{version}}/dbz_aots.apworld"
+
+[versions]
+"0.16.3" = {}
